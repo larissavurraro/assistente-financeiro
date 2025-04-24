@@ -1,0 +1,9 @@
+Flask
+gspread
+oauth2client
+plotly
+requests
+SpeechRecognition
+pydub
+gtts
+twilio
