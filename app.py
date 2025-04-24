@@ -41,6 +41,13 @@ PASSWORD = "1234"
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
+    try:
+        return processar_mensagem()
+    except Exception as e:
+        print("ERRO GERAL:", e)
+        return Response("<Response><Message>❌ Erro interno ao processar a mensagem.</Message></Response>", mimetype="application/xml")
+
+def processar_mensagem():
     msg = request.form.get("Body")
     from_number = request.form.get("From")
     media_url = request.form.get("MediaUrl0")
