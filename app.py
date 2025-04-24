@@ -11,13 +11,16 @@ from pydub import AudioSegment
 from twilio.rest import Client
 from gtts import gTTS
 import uuid
+import json
 
 app = Flask(__name__)
 app.secret_key = 'sua_chave_secreta_aqui'
 
 # Autenticação Google Sheets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("assistente-financeiro-457803-e70cbce6032d.json", scope)
+json_creds = os.environ.get("GOOGLE_CREDS_JSON")
+creds_dict = json.loads(json_creds)
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 spreadsheet = client.open_by_key("1vKrmgkMTDwcx5qufF-YRvsXSk99J1Vq9-LwuQINwcl8")
 sheet = spreadsheet.sheet1
@@ -73,6 +76,7 @@ def whatsapp():
             data_formatada = datetime.today().strftime("%d/%m/%Y")
 
     sheet.append_row([data_formatada, categoria, descricao, responsavel, valor])
+    print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor])
 
     resposta_texto = f"✅ Despesa registrada com sucesso!\n📅 {data_formatada}\n📂 {categoria}\n📝 {descricao}\n👤 {responsavel}\n💸 R$ {valor}"
 
@@ -91,7 +95,7 @@ def whatsapp():
         body=resposta_texto,
         from_=twilio_number,
         to=from_number,
-        media_url=[f"https://your-server-url.com/static/{ogg_filename}"]
+        media_url=[f"https://assistente-financeiro.onrender.com/static/{ogg_filename}"]
     )
 
     return Response("<Response><Message>✅ Despesa registrada com sucesso!</Message></Response>", mimetype="application/xml")
