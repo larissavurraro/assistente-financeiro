@@ -53,7 +53,11 @@ def processar_mensagem():
     media_url = request.form.get("MediaUrl0")
     media_type = request.form.get("MediaContentType0")
 
+    print("MEDIA URL:", media_url)
+    print("MEDIA TYPE:", media_type)
+
     if media_url and media_type == "audio/ogg":
+        print("Baixando e processando o áudio...")
         ogg_path = "audio.ogg"
         wav_path = "audio.wav"
         response = requests.get(media_url)
@@ -66,7 +70,9 @@ def processar_mensagem():
             audio = recognizer.record(source)
             try:
                 msg = recognizer.recognize_google(audio, language="pt-BR")
-            except:
+                print("ÁUDIO RECONHECIDO COM SUCESSO:", msg)
+            except Exception as err:
+                print("ERRO AO RECONHECER ÁUDIO:", err)
                 return Response("<Response><Message>❌ Não consegui entender o áudio.</Message></Response>", mimetype="application/xml")
         os.remove(ogg_path)
         os.remove(wav_path)
@@ -88,7 +94,6 @@ def processar_mensagem():
         except:
             data_formatada = datetime.today().strftime("%d/%m/%Y")
 
-    # Aplicar formatações
     categoria = categoria.upper()
     descricao = descricao.upper()
     responsavel = responsavel.upper()
@@ -110,30 +115,29 @@ def processar_mensagem():
 
     print("RESPOSTA TEXTO PARA WHATSAPP:\n", resposta_texto)
 
-    # Gerar resposta em áudio e salvar na pasta /static
     static_dir = "static"
     os.makedirs(static_dir, exist_ok=True)
     audio_filename = os.path.join(static_dir, f"resposta_{uuid.uuid4().hex}.mp3")
     tts = gTTS(text=f"Despesa registrada com sucesso, {responsavel}! Categoria {categoria}, valor {valor_formatado}.", lang='pt')
     tts.save(audio_filename)
 
-    # Converter para ogg
     ogg_filename = audio_filename.replace(".mp3", ".ogg")
     AudioSegment.from_file(audio_filename).export(ogg_filename, format="ogg")
     os.remove(audio_filename)
 
-    # Enviar texto primeiro
+    audio_url = f"https://assistente-financeiro.onrender.com/{ogg_filename}"
+    print("ÁUDIO PARA ENVIO:", audio_url)
+
     twilio_client.messages.create(
         body=resposta_texto,
         from_=twilio_number,
         to=from_number
     )
 
-    # Depois enviar áudio
     twilio_client.messages.create(
         from_=twilio_number,
         to=from_number,
-        media_url=[f"https://assistente-financeiro.onrender.com/{ogg_filename}"]
+        media_url=[audio_url]
     )
 
     return Response("<Response></Response>", mimetype="application/xml")
