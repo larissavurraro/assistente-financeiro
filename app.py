@@ -101,14 +101,13 @@ def processar_mensagem():
     sheet.append_row([data_formatada, categoria, descricao, responsavel, valor_formatado])
     print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor_formatado])
 
-    resposta_texto = (
-        "✅ Despesa registrada com sucesso!\n"
-        f"📅 {data_formatada}\n"
-        f"📂 {categoria}\n"
-        f"📝 {descricao}\n"
-        f"👤 {responsavel}\n"
-        f"💸 {valor_formatado}"
-    )
+    resposta_texto = "✅ Despesa registrada com sucesso!\n"
+    resposta_texto += f"📅 {data_formatada}\n"
+    resposta_texto += f"📂 {categoria}\n"
+    resposta_texto += f"📝 {descricao}\n"
+    resposta_texto += f"👤 {responsavel}\n"
+    resposta_texto += f"💸 {valor_formatado}"
+
     print("RESPOSTA TEXTO PARA WHATSAPP:\n", resposta_texto)
 
     # Gerar resposta em áudio e salvar na pasta /static
