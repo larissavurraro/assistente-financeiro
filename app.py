@@ -84,11 +84,18 @@ def whatsapp():
     sheet.append_row([data_formatada, categoria, descricao, responsavel, valor])
     print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor])
 
-    resposta_texto = f"✅ Despesa registrada com sucesso!\n📅 {data_formatada}\n📂 {categoria}\n📝 {descricao}\n👤 {responsavel}\n💸 R$ {valor}"
+    resposta_texto = f"""✅ Despesa registrada com sucesso!
+📅 {data_formatada}
+📂 {categoria}
+📝 {descricao}
+👤 {responsavel}
+💸 R$ {valor}"""
 
-    # Gerar resposta em áudio
+    # Gerar resposta em áudio e salvar na pasta /static
+    static_dir = "static"
+    os.makedirs(static_dir, exist_ok=True)
+    audio_filename = os.path.join(static_dir, f"resposta_{uuid.uuid4().hex}.mp3")
     tts = gTTS(text=f"Despesa registrada com sucesso, {responsavel}! Categoria {categoria}, valor {valor} reais.", lang='pt')
-    audio_filename = f"resposta_{uuid.uuid4().hex}.mp3"
     tts.save(audio_filename)
 
     # Converter para ogg
@@ -101,7 +108,7 @@ def whatsapp():
         body=resposta_texto,
         from_=twilio_number,
         to=from_number,
-        media_url=[f"https://assistente-financeiro.onrender.com/static/{ogg_filename}"]
+        media_url=[f"https://assistente-financeiro.onrender.com/{ogg_filename}"]
     )
 
     return Response("<Response><Message>✅ Despesa registrada com sucesso!</Message></Response>", mimetype="application/xml")
