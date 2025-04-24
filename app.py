@@ -136,7 +136,7 @@ def processar_mensagem():
         media_url=[f"https://assistente-financeiro.onrender.com/{ogg_filename}"]
     )
 
-    return Response("<Response><Message>✅ Despesa registrada com sucesso!</Message></Response>", mimetype="application/xml")
+    return Response("<Response></Response>", mimetype="application/xml")
 
 if __name__ == '__main__':
     app.run(debug=True)
