@@ -29,10 +29,10 @@ client = gspread.authorize(creds)
 spreadsheet = client.open_by_key("1vKrmgkMTDwcx5qufF-YRvsXSk99J1Vq9-LwuQINwcl8")
 sheet = spreadsheet.sheet1
 
-# Twilio config
-twilio_sid = "ACaf30d619254ef0aeb126288b5e74118e"
-twilio_token = "b0f2f008061c857624fa8516477a6226"
-twilio_number = "whatsapp:+14155238886"
+# Twilio config via variável de ambiente
+twilio_sid = os.environ.get("TWILIO_SID")
+twilio_token = os.environ.get("TWILIO_TOKEN")
+twilio_number = os.environ.get("TWILIO_NUMBER")
 twilio_client = Client(twilio_sid, twilio_token)
 
 # Login simples
