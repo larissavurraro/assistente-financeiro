@@ -75,7 +75,9 @@ def whatsapp():
         data_formatada = datetime.today().strftime("%d/%m/%Y")
     else:
         try:
-            data_formatada = datetime.strptime(data, "%d/%m").strftime("%d/%m/%Y")
+            parsed_date = datetime.strptime(data, "%d/%m")
+            parsed_date = parsed_date.replace(year=datetime.today().year)
+            data_formatada = parsed_date.strftime("%d/%m/%Y")
         except:
             data_formatada = datetime.today().strftime("%d/%m/%Y")
 
