@@ -88,21 +88,33 @@ def processar_mensagem():
         except:
             data_formatada = datetime.today().strftime("%d/%m/%Y")
 
-    sheet.append_row([data_formatada, categoria, descricao, responsavel, valor])
-    print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor])
+    # Aplicar formatações
+    categoria = categoria.upper()
+    descricao = descricao.upper()
+    responsavel = responsavel.upper()
+    try:
+        valor = float(valor)
+        valor_formatado = f"R${valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        valor_formatado = valor
 
-    resposta_texto = f"""✅ Despesa registrada com sucesso!
-📅 {data_formatada}
-📂 {categoria}
-📝 {descricao}
-👤 {responsavel}
-💸 R$ {valor}"""
+    sheet.append_row([data_formatada, categoria, descricao, responsavel, valor_formatado])
+    print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor_formatado])
+
+    resposta_texto = (
+        f"✅ Despesa registrada com sucesso!\n"
+        f"📅 {data_formatada}\n"
+        f"📂 {categoria}\n"
+        f"📝 {descricao}\n"
+        f"👤 {responsavel}\n"
+        f"💸 {valor_formatado}"
+    )
 
     # Gerar resposta em áudio e salvar na pasta /static
     static_dir = "static"
     os.makedirs(static_dir, exist_ok=True)
     audio_filename = os.path.join(static_dir, f"resposta_{uuid.uuid4().hex}.mp3")
-    tts = gTTS(text=f"Despesa registrada com sucesso, {responsavel}! Categoria {categoria}, valor {valor} reais.", lang='pt')
+    tts = gTTS(text=f"Despesa registrada com sucesso, {responsavel}! Categoria {categoria}, valor {valor_formatado}.", lang='pt')
     tts.save(audio_filename)
 
     # Converter para ogg
