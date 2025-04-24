@@ -102,13 +102,14 @@ def processar_mensagem():
     print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor_formatado])
 
     resposta_texto = (
-        f"✅ Despesa registrada com sucesso!\n"
+        "✅ Despesa registrada com sucesso!\n"
         f"📅 {data_formatada}\n"
         f"📂 {categoria}\n"
         f"📝 {descricao}\n"
         f"👤 {responsavel}\n"
         f"💸 {valor_formatado}"
     )
+    print("RESPOSTA TEXTO PARA WHATSAPP:\n", resposta_texto)
 
     # Gerar resposta em áudio e salvar na pasta /static
     static_dir = "static"
