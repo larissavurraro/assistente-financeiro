@@ -122,9 +122,15 @@ def processar_mensagem():
     AudioSegment.from_file(audio_filename).export(ogg_filename, format="ogg")
     os.remove(audio_filename)
 
-    # Enviar áudio pelo WhatsApp
-    message = twilio_client.messages.create(
+    # Enviar texto primeiro
+    twilio_client.messages.create(
         body=resposta_texto,
+        from_=twilio_number,
+        to=from_number
+    )
+
+    # Depois enviar áudio
+    twilio_client.messages.create(
         from_=twilio_number,
         to=from_number,
         media_url=[f"https://assistente-financeiro.onrender.com/{ogg_filename}"]
