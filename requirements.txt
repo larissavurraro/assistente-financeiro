@@ -9,3 +9,4 @@ gtts
 twilio
 gunicorn
 matplotlib
+pandas
