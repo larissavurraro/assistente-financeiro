@@ -10,3 +10,4 @@ twilio
 gunicorn
 matplotlib
 pandas
+whisper
