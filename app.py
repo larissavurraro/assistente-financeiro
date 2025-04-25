@@ -18,10 +18,10 @@ if json_creds:
     creds_dict = json.loads(json_creds)
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 else:
-    creds = ServiceAccountCredentials.from_json_keyfile_name("SEU_ARQUIVO_CREDENCIAL.json", scope)
+    creds = ServiceAccountCredentials.from_json_keyfile_name("assistente-financeiro-457803-1e9f12a3cd87.json", scope)
 
 client = gspread.authorize(creds)
-spreadsheet = client.open_by_key("ID_DA_SUA_PLANILHA")
+spreadsheet = client.open_by_key("1vKrmgkMTDwcx5qufF-YRvsXSk99J1Vq9-LwuQINwcl8")
 sheet = spreadsheet.sheet1
 
 # Twilio (via variáveis de ambiente)
