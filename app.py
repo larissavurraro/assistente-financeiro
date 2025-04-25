@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, Response, send_file
+from flask import Flask, request, Response
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
@@ -11,20 +11,18 @@ import speech_recognition as sr
 app = Flask(__name__)
 app.secret_key = 'sua_chave_secreta_aqui'
 
-# Autenticação Google Sheets
+# Autenticação Google Sheets via variável de ambiente
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 json_creds = os.environ.get("GOOGLE_CREDS_JSON")
-if json_creds:
-    creds_dict = json.loads(json_creds)
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-else:
-    creds = ServiceAccountCredentials.from_json_keyfile_name("assistente-financeiro-457803-1e9f12a3cd87.json", scope)
-
+creds_dict = json.loads(json_creds)
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
+
+# ID da planilha correta
 spreadsheet = client.open_by_key("1vKrmgkMTDwcx5qufF-YRvsXSk99J1Vq9-LwuQINwcl8")
 sheet = spreadsheet.sheet1
 
-# Twilio (via variáveis de ambiente)
+# Twilio (via variáveis de ambiente no Render)
 twilio_sid = os.environ.get("TWILIO_SID")
 twilio_token = os.environ.get("TWILIO_TOKEN")
 twilio_number = os.environ.get("TWILIO_NUMBER")
@@ -75,7 +73,9 @@ def processar_mensagem():
         return Response("<Response><Message>❌ Formato inválido. Envie assim: 27/04, mercado, compras, Larissa, 150</Message></Response>", mimetype="application/xml")
 
     data, categoria, descricao, responsavel, valor = partes
-    if data.strip().lower() == "hoje":
+
+    # Converter data
+    if data.lower() == "hoje":
         data_formatada = datetime.today().strftime("%d/%m/%Y")
     else:
         try:
@@ -85,15 +85,17 @@ def processar_mensagem():
         except:
             data_formatada = datetime.today().strftime("%d/%m/%Y")
 
+    # Ajustar textos e valor
     categoria = categoria.upper()
     descricao = descricao.upper()
     responsavel = responsavel.upper()
     try:
-        valor = float(valor)
-        valor_formatado = f"R${valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        valor_float = float(valor)
+        valor_formatado = f"R${valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except:
         valor_formatado = valor
 
+    # Enviar para planilha
     sheet.append_row([data_formatada, categoria, descricao, responsavel, valor_formatado])
     print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor_formatado])
 
@@ -108,12 +110,14 @@ def processar_mensagem():
 
     print("RESPOSTA TEXTO:", resposta_texto)
 
+    # Criar áudio e salvar
     static_dir = "static"
     os.makedirs(static_dir, exist_ok=True)
     audio_filename = os.path.join(static_dir, f"resposta_{uuid.uuid4().hex}.mp3")
     tts = gTTS(text=f"Despesa registrada com sucesso, {responsavel}! Categoria {categoria}, valor {valor_formatado}.", lang='pt')
     tts.save(audio_filename)
 
+    # Converter para ogg
     ogg_filename = audio_filename.replace(".mp3", ".ogg")
     AudioSegment.from_file(audio_filename).export(ogg_filename, format="ogg")
     os.remove(audio_filename)
@@ -121,12 +125,12 @@ def processar_mensagem():
     audio_url = f"https://assistente-financeiro.onrender.com/{ogg_filename}"
     print("ÁUDIO:", audio_url)
 
+    # Enviar mensagens no WhatsApp
     twilio_client.messages.create(
         body=resposta_texto,
         from_=twilio_number,
         to=from_number
     )
-
     twilio_client.messages.create(
         from_=twilio_number,
         to=from_number,
@@ -137,4 +141,3 @@ def processar_mensagem():
 
 if __name__ == '__main__':
     app.run(debug=True)
-
