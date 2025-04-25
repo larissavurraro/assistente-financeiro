@@ -49,6 +49,36 @@ def processar_mensagem():
     print("MEDIA URL:", media_url)
     print("MEDIA TYPE:", media_type)
 
+    if media_url and "audio" in media_type:
+        ogg_path = "audio.ogg"
+        wav_path = "audio.wav"
+
+        try:
+            response = requests.get(media_url)
+            with open(ogg_path, "wb") as f:
+                f.write(response.content)
+
+            AudioSegment.from_file(ogg_path).export(wav_path, format="wav")
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(wav_path) as source:
+                audio = recognizer.record(source)
+                try:
+                    msg = recognizer.recognize_google(audio, language="pt-BR")
+                    print("ÁUDIO RECONHECIDO:", msg)
+                except Exception as err:
+                    print("ERRO AO RECONHECER ÁUDIO:", err)
+                    import traceback
+                    traceback.print_exc()
+                    return Response("<Response><Message>❌ Não consegui entender o áudio.</Message></Response>", mimetype="application/xml")
+        except Exception as err:
+            print("ERRO AO PROCESSAR O ÁUDIO:", err)
+            import traceback
+            traceback.print_exc()
+            return Response("<Response><Message>❌ Houve um erro ao processar o áudio.</Message></Response>", mimetype="application/xml")
+        finally:
+            if os.path.exists(ogg_path): os.remove(ogg_path)
+            if os.path.exists(wav_path): os.remove(wav_path)
+
     if "resumo" in msg.lower() and "semana" in msg.lower():
         dados = sheet.get_all_records()
         df = pd.DataFrame(dados)
@@ -85,25 +115,42 @@ def processar_mensagem():
 
         return Response("<Response><Message>📊 Aqui está o resumo da semana!</Message></Response>", mimetype="application/xml")
 
-    if media_url and media_type == "audio/ogg":
-        ogg_path = "audio.ogg"
-        wav_path = "audio.wav"
-        response = requests.get(media_url)
-        with open(ogg_path, "wb") as f:
-            f.write(response.content)
+    if "resumo" in msg.lower() and "mês" in msg.lower():
+        dados = sheet.get_all_records()
+        df = pd.DataFrame(dados)
+        df["DATA"] = pd.to_datetime(df["DATA"], dayfirst=True, errors="coerce")
 
-        AudioSegment.from_file(ogg_path).export(wav_path, format="wav")
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            audio = recognizer.record(source)
-            try:
-                msg = recognizer.recognize_google(audio, language="pt-BR")
-                print("ÁUDIO RECONHECIDO:", msg)
-            except Exception as err:
-                print("ERRO AO RECONHECER ÁUDIO:", err)
-                return Response("<Response><Message>❌ Não consegui entender o áudio.</Message></Response>", mimetype="application/xml")
-        os.remove(ogg_path)
-        os.remove(wav_path)
+        hoje = datetime.today()
+        mes_passado = hoje - pd.Timedelta(days=30)
+        df_mes = df[df["DATA"] >= mes_passado]
+
+        resumo = df_mes.groupby("RESPONSAVEL")["VALOR"].apply(
+            lambda x: pd.to_numeric(x.replace("R$", "", regex=True)
+                                    .str.replace(".", "", regex=False)
+                                    .str.replace(",", ".", regex=False), errors="coerce").sum()
+        ).reset_index()
+
+        plt.figure(figsize=(6, 4))
+        plt.bar(resumo["RESPONSAVEL"], resumo["VALOR"], color=["#FFD54F", "#4FC3F7"])
+        plt.title("💸 Gastos do Mês por Pessoa")
+        plt.ylabel("Total (R$)")
+        plt.grid(axis='y', linestyle='--', alpha=0.5)
+
+        static_dir = "static"
+        os.makedirs(static_dir, exist_ok=True)
+        grafico_path = os.path.join(static_dir, f"grafico_{uuid.uuid4().hex}.png")
+        plt.tight_layout()
+        plt.savefig(grafico_path)
+        plt.close()
+
+        grafico_url = f"https://assistente-financeiro.onrender.com/{grafico_path}"
+        twilio_client.messages.create(
+            from_=twilio_number,
+            to=from_number,
+            media_url=[grafico_url]
+        )
+
+        return Response("<Response><Message>📊 Aqui está o resumo do mês!</Message></Response>", mimetype="application/xml")
 
     print("MENSAGEM RECEBIDA:", msg)
     partes = [p.strip() for p in msg.split(",")]
