@@ -1,4 +1,4 @@
-from flask import Flask, request, Response
+from flask import Flask, render_template, request, redirect, url_for, session, Response, send_file
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
@@ -7,6 +7,8 @@ from twilio.rest import Client
 from pydub import AudioSegment
 from gtts import gTTS
 import speech_recognition as sr
+import matplotlib.pyplot as plt
+import pandas as pd
 
 app = Flask(__name__)
 app.secret_key = 'sua_chave_secreta_aqui'
@@ -47,6 +49,42 @@ def processar_mensagem():
     print("MEDIA URL:", media_url)
     print("MEDIA TYPE:", media_type)
 
+    if "resumo" in msg.lower() and "semana" in msg.lower():
+        dados = sheet.get_all_records()
+        df = pd.DataFrame(dados)
+        df["DATA"] = pd.to_datetime(df["DATA"], dayfirst=True, errors="coerce")
+        hoje = datetime.today()
+        semana_passada = hoje - pd.Timedelta(days=7)
+        df_semana = df[df["DATA"] >= semana_passada]
+
+        resumo = df_semana.groupby("RESPONSAVEL")["VALOR"].apply(
+            lambda x: pd.to_numeric(x.replace("R$", "", regex=True)
+                                    .str.replace(".", "", regex=False)
+                                    .str.replace(",", ".", regex=False), errors="coerce").sum()
+        ).reset_index()
+
+        plt.figure(figsize=(6, 4))
+        plt.bar(resumo["RESPONSAVEL"], resumo["VALOR"], color=["#A5D6A7", "#81C784"])
+        plt.title("Gastos da Semana por Pessoa")
+        plt.ylabel("Total (R$)")
+        plt.grid(axis='y', linestyle='--', alpha=0.5)
+
+        static_dir = "static"
+        os.makedirs(static_dir, exist_ok=True)
+        grafico_path = os.path.join(static_dir, f"grafico_{uuid.uuid4().hex}.png")
+        plt.tight_layout()
+        plt.savefig(grafico_path)
+        plt.close()
+
+        grafico_url = f"https://assistente-financeiro.onrender.com/{grafico_path}"
+        twilio_client.messages.create(
+            from_=twilio_number,
+            to=from_number,
+            media_url=[grafico_url]
+        )
+
+        return Response("<Response><Message>📊 Aqui está o resumo da semana!</Message></Response>", mimetype="application/xml")
+
     if media_url and media_type == "audio/ogg":
         ogg_path = "audio.ogg"
         wav_path = "audio.wav"
@@ -74,7 +112,6 @@ def processar_mensagem():
 
     data, categoria, descricao, responsavel, valor = partes
 
-    # Converter data
     if data.lower() == "hoje":
         data_formatada = datetime.today().strftime("%d/%m/%Y")
     else:
@@ -85,7 +122,6 @@ def processar_mensagem():
         except:
             data_formatada = datetime.today().strftime("%d/%m/%Y")
 
-    # Ajustar textos e valor
     categoria = categoria.upper()
     descricao = descricao.upper()
     responsavel = responsavel.upper()
@@ -95,7 +131,6 @@ def processar_mensagem():
     except:
         valor_formatado = valor
 
-    # Enviar para planilha
     sheet.append_row([data_formatada, categoria, descricao, responsavel, valor_formatado])
     print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor_formatado])
 
@@ -110,14 +145,12 @@ def processar_mensagem():
 
     print("RESPOSTA TEXTO:", resposta_texto)
 
-    # Criar áudio e salvar
     static_dir = "static"
     os.makedirs(static_dir, exist_ok=True)
     audio_filename = os.path.join(static_dir, f"resposta_{uuid.uuid4().hex}.mp3")
     tts = gTTS(text=f"Despesa registrada com sucesso, {responsavel}! Categoria {categoria}, valor {valor_formatado}.", lang='pt')
     tts.save(audio_filename)
 
-    # Converter para ogg
     ogg_filename = audio_filename.replace(".mp3", ".ogg")
     AudioSegment.from_file(audio_filename).export(ogg_filename, format="ogg")
     os.remove(audio_filename)
@@ -125,7 +158,6 @@ def processar_mensagem():
     audio_url = f"https://assistente-financeiro.onrender.com/{ogg_filename}"
     print("ÁUDIO:", audio_url)
 
-    # Enviar mensagens no WhatsApp
     twilio_client.messages.create(
         body=resposta_texto,
         from_=twilio_number,
