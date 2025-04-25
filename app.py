@@ -2,16 +2,11 @@ from flask import Flask, render_template, request, redirect, url_for, session, R
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
-import plotly.graph_objs as go
-import plotly.io as pio
-import os
-import requests
-import speech_recognition as sr
-from pydub import AudioSegment
+import os, json, uuid, requests
 from twilio.rest import Client
+from pydub import AudioSegment
 from gtts import gTTS
-import uuid
-import json
+import speech_recognition as sr
 
 app = Flask(__name__)
 app.secret_key = 'sua_chave_secreta_aqui'
@@ -23,21 +18,17 @@ if json_creds:
     creds_dict = json.loads(json_creds)
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 else:
-    creds = ServiceAccountCredentials.from_json_keyfile_name("assistente-financeiro-457803-1e9f12a3cd87.json", scope)
+    creds = ServiceAccountCredentials.from_json_keyfile_name("SEU_ARQUIVO_CREDENCIAL.json", scope)
 
 client = gspread.authorize(creds)
-spreadsheet = client.open_by_key("1vKrmgkMTDwcx5qufF-YRvsXSk99J1Vq9-LwuQINwcl8")
+spreadsheet = client.open_by_key("ID_DA_SUA_PLANILHA")
 sheet = spreadsheet.sheet1
 
-# Twilio config via variável de ambiente
+# Twilio (via variáveis de ambiente)
 twilio_sid = os.environ.get("TWILIO_SID")
 twilio_token = os.environ.get("TWILIO_TOKEN")
 twilio_number = os.environ.get("TWILIO_NUMBER")
 twilio_client = Client(twilio_sid, twilio_token)
-
-# Login simples
-USERNAME = "larissa"
-PASSWORD = "1234"
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
@@ -45,6 +36,8 @@ def whatsapp():
         return processar_mensagem()
     except Exception as e:
         print("ERRO GERAL:", e)
+        import traceback
+        traceback.print_exc()
         return Response("<Response><Message>❌ Erro interno ao processar a mensagem.</Message></Response>", mimetype="application/xml")
 
 def processar_mensagem():
@@ -57,7 +50,6 @@ def processar_mensagem():
     print("MEDIA TYPE:", media_type)
 
     if media_url and media_type == "audio/ogg":
-        print("Baixando e processando o áudio...")
         ogg_path = "audio.ogg"
         wav_path = "audio.wav"
         response = requests.get(media_url)
@@ -70,7 +62,7 @@ def processar_mensagem():
             audio = recognizer.record(source)
             try:
                 msg = recognizer.recognize_google(audio, language="pt-BR")
-                print("ÁUDIO RECONHECIDO COM SUCESSO:", msg)
+                print("ÁUDIO RECONHECIDO:", msg)
             except Exception as err:
                 print("ERRO AO RECONHECER ÁUDIO:", err)
                 return Response("<Response><Message>❌ Não consegui entender o áudio.</Message></Response>", mimetype="application/xml")
@@ -78,7 +70,6 @@ def processar_mensagem():
         os.remove(wav_path)
 
     print("MENSAGEM RECEBIDA:", msg)
-
     partes = [p.strip() for p in msg.split(",")]
     if len(partes) != 5:
         return Response("<Response><Message>❌ Formato inválido. Envie assim: 27/04, mercado, compras, Larissa, 150</Message></Response>", mimetype="application/xml")
@@ -106,14 +97,16 @@ def processar_mensagem():
     sheet.append_row([data_formatada, categoria, descricao, responsavel, valor_formatado])
     print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor_formatado])
 
-    resposta_texto = "✅ Despesa registrada com sucesso!\n"
-    resposta_texto += f"📅 {data_formatada}\n"
-    resposta_texto += f"📂 {categoria}\n"
-    resposta_texto += f"📝 {descricao}\n"
-    resposta_texto += f"👤 {responsavel}\n"
-    resposta_texto += f"💸 {valor_formatado}"
+    resposta_texto = (
+        f"✅ Despesa registrada com sucesso!\n"
+        f"📅 {data_formatada}\n"
+        f"📂 {categoria}\n"
+        f"📝 {descricao}\n"
+        f"👤 {responsavel}\n"
+        f"💸 {valor_formatado}"
+    )
 
-    print("RESPOSTA TEXTO PARA WHATSAPP:\n", resposta_texto)
+    print("RESPOSTA TEXTO:", resposta_texto)
 
     static_dir = "static"
     os.makedirs(static_dir, exist_ok=True)
@@ -126,7 +119,7 @@ def processar_mensagem():
     os.remove(audio_filename)
 
     audio_url = f"https://assistente-financeiro.onrender.com/{ogg_filename}"
-    print("ÁUDIO PARA ENVIO:", audio_url)
+    print("ÁUDIO:", audio_url)
 
     twilio_client.messages.create(
         body=resposta_texto,
@@ -144,3 +137,4 @@ def processar_mensagem():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
