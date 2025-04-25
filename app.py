@@ -45,12 +45,17 @@ def classificar_categoria(descricao):
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
     try:
-        return processar_mensagem()
-    except Exception as e:
-        print("ERRO GERAL:", e)
-        import traceback
-        traceback.print_exc()
-        return Response("<Response><Message>❌ Erro interno ao processar a mensagem.</Message></Response>", mimetype="application/xml")
+    return processar_mensagem()
+except Exception as e:
+    import traceback
+    erro_trace = traceback.format_exc()
+    print("ERRO AO PROCESSAR MENSAGEM:\n", erro_trace)
+    twilio_client.messages.create(
+        body=f"⚠️ Erro interno: {str(e)}",
+        from_=twilio_number,
+        to=request.form.get("From")
+    )
+    return Response("<Response><Message>❌ Erro interno. Verifique os logs.</Message></Response>", mimetype="application/xml")
 
 def processar_mensagem():
     msg = request.form.get("Body", "")
@@ -68,7 +73,7 @@ def processar_mensagem():
             with open(ogg_path, "wb") as f:
                 f.write(response.content)
             AudioSegment.from_file(ogg_path).export(wav_path, format="wav")
-            model = whisper.load_model("base")
+            model = whisper.load_model("tiny")
             result = model.transcribe(wav_path, language="pt")
             msg = result["text"]
             print("ÁUDIO RECONHECIDO (Whisper):", msg)
