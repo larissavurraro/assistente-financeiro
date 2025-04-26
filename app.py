@@ -91,7 +91,6 @@ def processar_mensagem():
 
     _, data, categoria, descricao, valor = partes
 
-    # Data
     if data.lower() == "hoje":
         data_formatada = datetime.today().strftime("%d/%m/%Y")
     else:
@@ -113,6 +112,7 @@ def processar_mensagem():
     sheet.append_row([data_formatada, categoria, descricao, responsavel, valor_formatado])
     print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor_formatado])
 
+    # Agora retorna diretamente para o WhatsApp via XML
     resposta = (
         f"✅ Despesa registrada!\n"
         f"📅 {data_formatada}\n"
@@ -122,21 +122,7 @@ def processar_mensagem():
         f"💸 {valor_formatado}"
     )
 
-    audio_path = os.path.join("static", f"resposta_{uuid.uuid4().hex}.mp3")
-    tts = gTTS(text=f"Despesa registrada com sucesso, {responsavel}! Categoria {categoria}, valor {valor_formatado}.", lang="pt")
-    tts.save(audio_path)
-    ogg_path = audio_path.replace(".mp3", ".ogg")
-    AudioSegment.from_file(audio_path).export(ogg_path, format="ogg")
-    os.remove(audio_path)
-
-    audio_url = f"https://assistente-financeiro.onrender.com/{ogg_path}"
-
-    twilio_client.messages.create(body=resposta, from_=twilio_number, to=from_number)
-    twilio_client.messages.create(from_=twilio_number, to=from_number, media_url=[audio_url])
-
-    return Response("<Response></Response>", mimetype="application/xml")
-
-# Funções de resumo
+    return Response(f"<Response><Message>{resposta}</Message></Response>", mimetype="application/xml")
 
 def gerar_resumo(responsavel, dias, titulo):
     dados = sheet.get_all_records()
