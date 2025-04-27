@@ -73,8 +73,8 @@ def whatsapp_webhook():
 def identify_user(phone_number):
     """Identifica o usuário pelo número do telefone"""
     users = {
-        os.environ.get("YOUR_PHONE"): "você",
-        os.environ.get("FIANCE_PHONE"): "noivo"
+        os.environ.get("whatsapp:+5511975220021"): "Larissa",
+        os.environ.get("whatsapp:+5511977052756"): "Thiago"
     }
     return users.get(phone_number)
 
