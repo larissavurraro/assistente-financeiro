@@ -13,6 +13,7 @@ import pandas as pd
 app = Flask(__name__)
 app.secret_key = 'sua_chave_secreta_aqui'
 
+# Autenticação Google Sheets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 json_creds = os.environ.get("GOOGLE_CREDS_JSON")
 creds_dict = json.loads(json_creds)
@@ -21,6 +22,7 @@ client = gspread.authorize(creds)
 spreadsheet = client.open_by_key("1vKrmgkMTDwcx5qufF-YRvsXSk99J1Vq9-LwuQINwcl8")
 sheet = spreadsheet.sheet1
 
+# Twilio
 twilio_sid = os.environ.get("TWILIO_SID")
 twilio_token = os.environ.get("TWILIO_TOKEN")
 twilio_number = os.environ.get("TWILIO_NUMBER")
@@ -28,11 +30,11 @@ twilio_client = Client(twilio_sid, twilio_token)
 
 # Palavras-chave para classificar automaticamente
 palavras_categoria = {
-    "alimentação": ["mercado", "supermercado", "pão", "leite", "feira", "comida"],
+    "mercado": ["mercado", "supermercado", "pão", "leite", "feira", "comida"],
     "transporte": ["uber", "99", "ônibus", "metro", "trem", "corrida", "combustível", "gasolina"],
     "lazer": ["cinema", "netflix", "bar", "show", "festa", "lazer"],
-    "gastos fixos": ["aluguel", "condominio", "energia", "água", "internet", "luz"],
-    "alimentação": ["restaurante", "lanche", "jantar", "almoço", "hamburguer", "pizza"]
+    "moradia": ["aluguel", "condominio", "energia", "água", "internet", "luz"],
+    "refeição": ["restaurante", "lanche", "jantar", "almoço", "hamburguer", "pizza"]
 }
 
 def classificar_categoria(descricao):
@@ -60,6 +62,7 @@ def processar_mensagem():
 
     print("MENSAGEM ORIGINAL:", msg)
 
+    # Reconhecimento de áudio
     if media_url and "audio" in media_type:
         ogg_path = "audio.ogg"
         wav_path = "audio.wav"
@@ -74,8 +77,6 @@ def processar_mensagem():
             print("ÁUDIO RECONHECIDO (Whisper):", msg)
         except Exception as err:
             print("ERRO AO PROCESSAR O ÁUDIO:", err)
-            import traceback
-            traceback.print_exc()
             return Response("<Response><Message>❌ Houve um erro ao processar o áudio.</Message></Response>", mimetype="application/xml")
         finally:
             if os.path.exists(ogg_path): os.remove(ogg_path)
@@ -83,6 +84,7 @@ def processar_mensagem():
 
     msg = msg.lower()
 
+    # Detectar comandos de resumo
     if "resumo geral" in msg:
         return gerar_resumo_geral()
     if "resumo hoje" in msg:
@@ -98,6 +100,7 @@ def processar_mensagem():
     if "resumo da semana" in msg:
         return gerar_resumo("TODOS", 7, "Resumo da Semana")
 
+    # Cadastro de despesa
     partes = [p.strip() for p in msg.split(",")]
 
     if len(partes) != 5:
@@ -127,6 +130,7 @@ def processar_mensagem():
     sheet.append_row([data_formatada, categoria, descricao, responsavel, valor_formatado])
     print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor_formatado])
 
+    # Texto de resposta
     resposta_texto = (
         f"✅ Despesa registrada com sucesso!\n"
         f"📅 {data_formatada}\n"
@@ -136,18 +140,35 @@ def processar_mensagem():
         f"💸 {valor_formatado}"
     )
 
-    static_dir = "static"
-    os.makedirs(static_dir, exist_ok=True)
-    audio_filename = os.path.join(static_dir, f"resposta_{uuid.uuid4().hex}.mp3")
-    tts = gTTS(text=f"Despesa registrada com sucesso, {responsavel}! Categoria {categoria}, valor {valor_formatado}.", lang='pt')
-    tts.save(audio_filename)
-    ogg_filename = audio_filename.replace(".mp3", ".ogg")
-    AudioSegment.from_file(audio_filename).export(ogg_filename, format="ogg")
-    os.remove(audio_filename)
+    # --- Configuração: quer áudio ou não?
+    enviar_audio = True
 
-    audio_url = f"https://assistente-financeiro.onrender.com/{ogg_filename}"
+    if enviar_audio:
+        static_dir = "static"
+        os.makedirs(static_dir, exist_ok=True)
+        audio_filename = os.path.join(static_dir, f"resposta_{uuid.uuid4().hex}.mp3")
+        tts = gTTS(text=f"Despesa registrada com sucesso, {responsavel}! Categoria {categoria}, valor {valor_formatado}.", lang='pt')
+        tts.save(audio_filename)
 
-    twilio_client.messages.create(body=resposta_texto, from_=twilio_number, to=from_number)
-    twilio_client.messages.create(from_=twilio_number, to=from_number, media_url=[audio_url])
+        ogg_filename = audio_filename.replace(".mp3", ".ogg")
+        AudioSegment.from_file(audio_filename).export(ogg_filename, format="ogg")
+        os.remove(audio_filename)
 
-    return Response("<Response></Response>", mimetype="application/xml")
+        audio_url = f"https://assistente-financeiro.onrender.com/{ogg_filename}"
+
+        # (Opcional) Enviar áudio separado
+        twilio_client.messages.create(
+            from_=twilio_number,
+            to=from_number,
+            media_url=[audio_url]
+        )
+
+    # Resposta principal
+    resposta_xml = f"""
+<Response>
+    <Message>{resposta_texto}</Message>
+</Response>
+"""
+    return Response(resposta_xml, mimetype="application/xml")
+
+# --- As funções gerar_resumo_geral(), gerar_resumo_hoje(), gerar_resumo(), gerar_resumo_categoria() devem continuar como você já tem ---
