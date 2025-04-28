@@ -36,29 +36,28 @@ class ResponseGenerator:
         except:
             return date_str
     
-    def generate_expense_confirmation(self, expense_data):
-        """Gera mensagem de confirmação para despesa registrada"""
-        try:
-            formatted_amount = self.format_currency(expense_data.get("amount", 0))
-            category = expense_data.get("category", "").upper()
-            description = expense_data.get("description", "").capitalize()
-            date = self.format_date(expense_data.get("date", datetime.now().strftime("%d/%m/%Y")))
-            user = expense_data.get("user", "").capitalize()
-            
-            confirmation = (
-                "✅ Despesa registrada com sucesso!\n\n"
-                "📅 Data: {date}\n"
-                "📂 Categoria: {category}\n"
-                "📝 Descrição: {description}\n"
-                "👤 Responsável: {user}\n"
-                "💰 Valor: {formatted_amount}\n\n"
-                "Para ver um resumo, envie "resumo dos gastos"."
-            )
-            
-            return confirmation
-        except Exception as e:
-            logger.error(f"Erro ao gerar confirmação: {str(e)}")
-            return "✅ Despesa registrada com sucesso!"
+    def generate_expense_confirmation(expense_data):
+    try:
+        formatted_amount = self.format_currency(expense_data.get("amount", 0))
+        category = expense_data.get("category", "").upper()
+        description = expense_data.get("description", "").capitalize()
+        date = self.format_date(expense_data.get("date", datetime.now().strftime("%d/%m/%Y")))
+        user = expense_data.get("user", "").capitalize()
+        
+        confirmation = (
+            "✅ Despesa registrada com sucesso!\n\n"
+            f"📅 Data: {date}\n"
+            f"📂 Categoria: {category}\n"
+            f"📝 Descrição: {description}\n"
+            f"👤 Responsável: {user}\n"
+            f"💰 Valor: {formatted_amount}\n\n"
+            "Para ver um resumo, envie "resumo dos gastos"."
+        )
+        
+        return confirmation
+    except Exception as e:
+        logger.error(f"Erro ao gerar confirmação: {str(e)}")
+        return "✅ Despesa registrada com sucesso!\n"
     
     def generate_audio_confirmation(self, expense_data):
         """Gera texto para confirmar despesa via áudio (mais natural)"""
