@@ -135,36 +135,37 @@ def processar_mensagem():
     print("MENSAGEM ORIGINAL:", msg)
 
     # Processa áudio se enviado
-if media_url and "audio" in media_type:
-    ogg_path = "audio.ogg"
-    wav_path = "audio.wav"
-    try:
-        # Baixa o áudio
-        response = requests.get(media_url)
-        with open(ogg_path, "wb") as f:
-            f.write(response.content)
+try:
+    # Baixa e processa o áudio enviado
+    response = requests.get(media_url)
+    with open(ogg_path, "wb") as f:
+        f.write(response.content)
 
-        # Valida o tamanho do arquivo baixado
-        if os.stat(ogg_path).st_size == 0:
-            raise Exception("Arquivo de áudio vazio ou corrompido.")
+    # Garantir que o arquivo não está vazio
+    if os.stat(ogg_path).st_size == 0:
+        raise Exception("Arquivo de áudio vazio ou corrompido.")
 
-        # Converte OGG para WAV
-        AudioSegment.from_file(ogg_path, format="ogg").export(wav_path, format="wav")
+    # Converte OGG para WAV
+    AudioSegment.from_file(ogg_path, format="ogg").export(wav_path, format="wav")
 
-        # Transcreve com Whisper
-        model = whisper.load_model("base")
-        result = model.transcribe(wav_path, language="pt")
-        msg = result["text"]
-        print("ÁUDIO RECONHECIDO (Whisper):", msg)
-    except Exception as err:
-        print("ERRO AO PROCESSAR O ÁUDIO:", err)
-        import traceback
-        traceback.print_exc()
-        return Response("<Response><Message>❌ Houve um problema ao processar o áudio enviado. Certifique-se de que o arquivo é compatível.</Message></Response>", mimetype="application/xml")
-    finally:
-        # Remove os arquivos temporários
-        if os.path.exists(ogg_path): os.remove(ogg_path)
-        if os.path.exists(wav_path): os.remove(wav_path)
+    # Transcreve com Whisper
+    model = whisper.load_model("base")
+    result = model.transcribe(wav_path, language="pt")
+    msg = result["text"]
+    print("ÁUDIO RECONHECIDO (Whisper):", msg)
+except Exception as err:
+    print("ERRO AO PROCESSAR O ÁUDIO:", err)
+    import traceback
+    traceback.print_exc()
+    # Responde ao erro no mesmo nível da solicitação
+    return Response(
+        "<Response><Message>❌ Houve um problema ao processar o áudio enviado. Certifique-se de que o arquivo é compatível.</Message></Response>",
+        mimetype="application/xml"
+    )
+finally:
+    # Remove os arquivos temporários criados
+    if os.path.exists(ogg_path): os.remove(ogg_path)
+    if os.path.exists(wav_path): os.remove(wav_path)
 
     msg = msg.lower().strip()
 
