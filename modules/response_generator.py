@@ -46,13 +46,13 @@ class ResponseGenerator:
             user = expense_data.get("user", "").capitalize()
             
             confirmation = (
-                f"✅ Despesa registrada com sucesso!\n\n"
-                f"📅 Data: {date}\n"
-                f"📂 Categoria: {category}\n"
-                f"📝 Descrição: {description}\n"
-                f"👤 Responsável: {user}\n"
-                f"💰 Valor: {formatted_amount}\n\n"
-                f"Para ver um resumo, envie "resumo dos gastos"."
+                "✅ Despesa registrada com sucesso!\n\n"
+                "📅 Data: {date}\n"
+                "📂 Categoria: {category}\n"
+                "📝 Descrição: {description}\n"
+                "👤 Responsável: {user}\n"
+                "💰 Valor: {formatted_amount}\n\n"
+                "Para ver um resumo, envie "resumo dos gastos"."
             )
             
             return confirmation
