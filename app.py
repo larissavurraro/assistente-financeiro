@@ -29,13 +29,13 @@ twilio_token = os.environ.get("TWILIO_TOKEN")
 twilio_number = os.environ.get("TWILIO_NUMBER")
 twilio_client = Client(twilio_sid, twilio_token)
 
-# Dicionário com palavras-chave para classificação automática de categoria
+# Palavras-chave para classificação automática
 palavras_categoria = {
-    "ALIMENTAÇÃO": ["mercado", "supermercado", "pão", "leite", "feira", "comida","restaurante", "lanche", "jantar", "almoço", "hamburguer", "refrigerante"],
-    "transporte": ["uber", "99", "ônibus", "metro", "trem", "corrida", "combustível", "gasolina"],
-    "lazer": ["cinema", "netflix", "bar", "show", "festa", "lazer"],
-    "gastos fixos": ["aluguel", "condominio", "energia", "água", "internet", "luz"],
-    "higiene e saúde": ["farmácia", "remédio", "hidratante"]
+    "ALIMENTAÇÃO": ["mercado", "supermercado", "pão", "leite", "feira", "comida", "restaurante", "lanche", "jantar", "almoço", "hamburguer", "refrigerante"],
+    "TRANSPORTE": ["uber", "99", "ônibus", "metro", "trem", "corrida", "combustível", "gasolina"],
+    "LAZER": ["cinema", "netflix", "bar", "show", "festa", "lazer"],
+    "GASTOS FIXOS": ["aluguel", "condominio", "energia", "água", "internet", "luz"],
+    "HIGIENE E SAÚDE": ["farmácia", "remédio", "hidratante"]
 }
 
 def classificar_categoria(descricao):
@@ -48,73 +48,80 @@ def classificar_categoria(descricao):
 def parse_valor(valor_str):
     try:
         v = float(valor_str.replace("R$", "").replace(".", "").replace(",", "."))
-    except Exception as e:
+    except:
         v = 0.0
     return v
 
-def send_summary_response(summary_text, from_number):
-    # Gera áudio da mensagem resumo
+def enviar_mensagem_audio(from_number, texto):
     static_dir = "static"
     os.makedirs(static_dir, exist_ok=True)
-    audio_filename = os.path.join(static_dir, f"resposta_{uuid.uuid4().hex}.mp3")
-    tts = gTTS(text=summary_text, lang='pt')
+    audio_filename = os.path.join(static_dir, f"resumo_{uuid.uuid4().hex}.mp3")
+
+    tts = gTTS(text=texto, lang='pt')
     tts.save(audio_filename)
     ogg_filename = audio_filename.replace(".mp3", ".ogg")
     AudioSegment.from_file(audio_filename).export(ogg_filename, format="ogg")
     os.remove(audio_filename)
+
     audio_url = f"https://assistente-financeiro.onrender.com/{ogg_filename}"
-    
-    # Envia a mensagem de texto e áudio via Twilio
-    twilio_client.messages.create(body=summary_text, from_=twilio_number, to=from_number)
+
+    twilio_client.messages.create(body=texto, from_=twilio_number, to=from_number)
     twilio_client.messages.create(from_=twilio_number, to=from_number, media_url=[audio_url])
+
     return Response("<Response></Response>", mimetype="application/xml")
 
 def gerar_resumo_geral(from_number):
-    records = sheet.get_all_records()
+    registros = sheet.get_all_records()
     total = 0.0
-    for r in records:
+    for r in registros:
         total += parse_valor(r.get("Valor", "0"))
-    summary_text = f"Resumo Geral:\nTotal de despesas registradas: R${total:,.2f}."
-    return send_summary_response(summary_text, from_number)
+
+    resumo = f"📊 Resumo Geral:\n\nTotal registrado: R${total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return enviar_mensagem_audio(from_number, resumo)
 
 def gerar_resumo_hoje(from_number):
     hoje = datetime.today().strftime("%d/%m/%Y")
-    records = sheet.get_all_records()
+    registros = sheet.get_all_records()
     total = 0.0
-    for r in records:
+    for r in registros:
         if r.get("Data") == hoje:
             total += parse_valor(r.get("Valor", "0"))
-    summary_text = f"Resumo de Hoje ({hoje}):\nTotal de despesas registradas: R${total:,.2f}."
-    return send_summary_response(summary_text, from_number)
 
-def gerar_resumo_categoria(from_number, categoria_param="todos"):
-    records = sheet.get_all_records()
+    resumo = f"📅 Resumo de Hoje ({hoje}):\n\nTotal registrado: R${total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return enviar_mensagem_audio(from_number, resumo)
+
+def gerar_resumo_categoria(from_number):
+    registros = sheet.get_all_records()
     categorias = {}
-    for r in records:
-        categoria = r.get("Categoria", "").upper()
+
+    for r in registros:
+        categoria = r.get("Categoria", "OUTROS")
         valor = parse_valor(r.get("Valor", "0"))
-        if categoria not in categorias:
-            categorias[categoria] = 0.0
-        categorias[categoria] += valor
-    summary_text = "Resumo por Categoria:\n"
-    for cat, total in categorias.items():
-        summary_text += f"{cat}: R${total:,.2f}\n"
-    return send_summary_response(summary_text, from_number)
+        categorias[categoria] = categorias.get(categoria, 0.0) + valor
+
+    texto = "📂 Resumo por Categoria:\n\n"
+    for categoria, total in categorias.items():
+        texto += f"{categoria}: R${total:,.2f}\n"
+
+    texto = texto.replace(",", "X").replace(".", ",").replace("X", ".")
+    return enviar_mensagem_audio(from_number, texto)
 
 def gerar_resumo(from_number, responsavel, dias, titulo):
-    records = sheet.get_all_records()
+    registros = sheet.get_all_records()
+    limite = datetime.today() - timedelta(days=dias)
     total = 0.0
-    limite = datetime.today() - timedelta(days=int(dias))
-    for r in records:
-        if r.get("Responsavel", "").upper() == responsavel.upper() or responsavel.upper() == "TODOS":
-            try:
-                data = datetime.strptime(r.get("Data", ""), "%d/%m/%Y")
-            except Exception as e:
-                continue
-            if data >= limite:
+
+    for r in registros:
+        try:
+            data = datetime.strptime(r.get("Data", ""), "%d/%m/%Y")
+        except:
+            continue
+        if data >= limite:
+            if responsavel.upper() == "TODOS" or r.get("Responsável", "").upper() == responsavel.upper():
                 total += parse_valor(r.get("Valor", "0"))
-    summary_text = f"{titulo} para {responsavel.upper()}:\nDespesas nos últimos {dias} dias: R${total:,.2f}."
-    return send_summary_response(summary_text, from_number)
+
+    resumo = f"📋 {titulo} ({responsavel.title()}):\n\nTotal: R${total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return enviar_mensagem_audio(from_number, resumo)
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
@@ -122,8 +129,6 @@ def whatsapp():
         return processar_mensagem()
     except Exception as e:
         print("ERRO GERAL:", e)
-        import traceback
-        traceback.print_exc()
         return Response("<Response><Message>❌ Erro interno ao processar a mensagem.</Message></Response>", mimetype="application/xml")
 
 def processar_mensagem():
@@ -134,46 +139,29 @@ def processar_mensagem():
 
     print("MENSAGEM ORIGINAL:", msg)
 
-    # Processa áudio se enviado
     if media_url and "audio" in media_type:
         ogg_path = "audio.ogg"
         wav_path = "audio.wav"
         try:
-            # Baixa o áudio
             response = requests.get(media_url)
             with open(ogg_path, "wb") as f:
                 f.write(response.content)
+            AudioSegment.from_file(ogg_path).export(wav_path, format="wav")
 
-            # Valida se o arquivo foi baixado corretamente
-            if os.stat(ogg_path).st_size == 0:
-                raise Exception("Arquivo de áudio vazio ou corrompido.")
-
-            # Converte OGG para WAV
-            AudioSegment.from_file(ogg_path, format="ogg").export(wav_path, format="wav")
-
-            # Transcrição com Whisper
             model = whisper.load_model("base")
             result = model.transcribe(wav_path, language="pt")
             msg = result["text"]
-            print("ÁUDIO RECONHECIDO (Whisper):", msg)
+            print("ÁUDIO RECONHECIDO:", msg)
         except Exception as err:
-            print("ERRO AO PROCESSAR O ÁUDIO:", err)
-            import traceback
-            traceback.print_exc()
-            # Retornar a resposta de erro *dentro da função processar_mensagem*
-            return Response(
-                "<Response><Message>❌ Houve um problema ao processar o áudio enviado. Certifique-se de que o arquivo é compatível.</Message></Response>",
-                mimetype="application/xml"
-            )
+            print("ERRO AO PROCESSAR ÁUDIO:", err)
+            return Response("<Response><Message>❌ Erro ao processar o áudio.</Message></Response>", mimetype="application/xml")
         finally:
-            # Remove os arquivos gerados se existirem
             if os.path.exists(ogg_path): os.remove(ogg_path)
             if os.path.exists(wav_path): os.remove(wav_path)
 
-    # Continue com o resto da lógica da função...
     msg = msg.lower().strip()
 
-    # Verifica se a mensagem é uma solicitação de resumo
+    # Verifica se é pedido de resumo
     if "resumo geral" in msg:
         return gerar_resumo_geral(from_number)
     if "resumo hoje" in msg:
@@ -189,15 +177,13 @@ def processar_mensagem():
     if "resumo da semana" in msg:
         return gerar_resumo(from_number, "TODOS", 7, "Resumo da Semana")
 
-    # Se não for um comando de resumo, trata o cadastro de despesa.
-    # Formato esperado: Responsavel, Data, (Categoria desconsiderada), Descrição, Valor
+    # Cadastro de despesa
     partes = [p.strip() for p in msg.split(",")]
     if len(partes) != 5:
-        return Response("<Response><Message>❌ Formato inválido. Envie: Thiago, 27/04, mercado, compras, 150</Message></Response>", mimetype="application/xml")
+        return Response("<Response><Message>❌ Formato inválido. Envie: Nome, data, categoria, descrição, valor</Message></Response>", mimetype="application/xml")
 
     responsavel, data, _, descricao, valor = partes
 
-    # Tratar a data
     if data.lower() == "hoje":
         data_formatada = datetime.today().strftime("%d/%m/%Y")
     else:
@@ -217,34 +203,19 @@ def processar_mensagem():
     except:
         valor_formatado = valor
 
-    # Registra a despesa na planilha
     sheet.append_row([data_formatada, categoria, descricao, responsavel, valor_formatado])
-print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor_formatado])
+    print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor_formatado])
 
-# Mensagem para WhatsApp
-resposta_texto = (
-    f"✅ Despesa registrada com sucesso!\n\n"
-    f"📅 {data_formatada}\n"
-    f"📂 {categoria}\n"
-    f"📝 {descricao}\n"
-    f"👤 {responsavel}\n"
-    f"💸 {valor_formatado}"
-)
-    # Geração do áudio de confirmação
-    static_dir = "static"
-    os.makedirs(static_dir, exist_ok=True)
-    audio_filename = os.path.join(static_dir, f"resposta_{uuid.uuid4().hex}.mp3")
-    tts = gTTS(text=f"Despesa registrada com sucesso, {responsavel}! Categoria {categoria}, valor {valor_formatado}.", lang='pt')
-    tts.save(audio_filename)
-    ogg_filename = audio_filename.replace(".mp3", ".ogg")
-    AudioSegment.from_file(audio_filename).export(ogg_filename, format="ogg")
-    os.remove(audio_filename)
-    audio_url = f"https://assistente-financeiro.onrender.com/{ogg_filename}"
+    resposta_texto = (
+        f"✅ Despesa registrada com sucesso!\n\n"
+        f"📅 {data_formatada}\n"
+        f"📂 {categoria}\n"
+        f"📝 {descricao}\n"
+        f"👤 {responsavel}\n"
+        f"💸 {valor_formatado}"
+    )
 
-    twilio_client.messages.create(body=resposta_texto, from_=twilio_number, to=from_number)
-    twilio_client.messages.create(from_=twilio_number, to=from_number, media_url=[audio_url])
-
-    return Response("<Response></Response>", mimetype="application/xml")
+    return enviar_mensagem_audio(from_number, resposta_texto)
 
 if __name__ == "__main__":
     app.run(debug=True)
