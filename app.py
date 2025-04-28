@@ -6,27 +6,41 @@ import os, json, uuid, requests
 from twilio.rest import Client
 from pydub import AudioSegment
 from gtts import gTTS
-import speech_recognition as sr
+import whisper
+import matplotlib.pyplot as plt
+import pandas as pd
 
 app = Flask(__name__)
 app.secret_key = 'sua_chave_secreta_aqui'
 
-# Autenticação Google Sheets via variável de ambiente
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 json_creds = os.environ.get("GOOGLE_CREDS_JSON")
 creds_dict = json.loads(json_creds)
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
-
-# ID da planilha correta
 spreadsheet = client.open_by_key("1vKrmgkMTDwcx5qufF-YRvsXSk99J1Vq9-LwuQINwcl8")
 sheet = spreadsheet.sheet1
 
-# Twilio (via variáveis de ambiente no Render)
 twilio_sid = os.environ.get("TWILIO_SID")
 twilio_token = os.environ.get("TWILIO_TOKEN")
 twilio_number = os.environ.get("TWILIO_NUMBER")
 twilio_client = Client(twilio_sid, twilio_token)
+
+# Palavras-chave para classificar automaticamente
+palavras_categoria = {
+    "mercado": ["mercado", "supermercado", "pão", "leite", "feira", "comida"],
+    "transporte": ["uber", "99", "ônibus", "metro", "trem", "corrida", "combustível", "gasolina"],
+    "lazer": ["cinema", "netflix", "bar", "show", "festa", "lazer"],
+    "moradia": ["aluguel", "condominio", "energia", "água", "internet", "luz"],
+    "refeição": ["restaurante", "lanche", "jantar", "almoço", "hamburguer", "pizza"]
+}
+
+def classificar_categoria(descricao):
+    desc = descricao.lower()
+    for categoria, palavras in palavras_categoria.items():
+        if any(palavra in desc for palavra in palavras):
+            return categoria.upper()
+    return "OUTROS"
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
@@ -39,42 +53,58 @@ def whatsapp():
         return Response("<Response><Message>❌ Erro interno ao processar a mensagem.</Message></Response>", mimetype="application/xml")
 
 def processar_mensagem():
-    msg = request.form.get("Body")
+    msg = request.form.get("Body", "")
     from_number = request.form.get("From")
     media_url = request.form.get("MediaUrl0")
     media_type = request.form.get("MediaContentType0")
 
-    print("MEDIA URL:", media_url)
-    print("MEDIA TYPE:", media_type)
+    print("MENSAGEM ORIGINAL:", msg)
 
-    if media_url and media_type == "audio/ogg":
+    if media_url and "audio" in media_type:
         ogg_path = "audio.ogg"
         wav_path = "audio.wav"
-        response = requests.get(media_url)
-        with open(ogg_path, "wb") as f:
-            f.write(response.content)
+        try:
+            response = requests.get(media_url)
+            with open(ogg_path, "wb") as f:
+                f.write(response.content)
+            AudioSegment.from_file(ogg_path).export(wav_path, format="wav")
+            model = whisper.load_model("base")
+            result = model.transcribe(wav_path, language="pt")
+            msg = result["text"]
+            print("ÁUDIO RECONHECIDO (Whisper):", msg)
+        except Exception as err:
+            print("ERRO AO PROCESSAR O ÁUDIO:", err)
+            import traceback
+            traceback.print_exc()
+            return Response("<Response><Message>❌ Houve um erro ao processar o áudio.</Message></Response>", mimetype="application/xml")
+        finally:
+            if os.path.exists(ogg_path): os.remove(ogg_path)
+            if os.path.exists(wav_path): os.remove(wav_path)
 
-        AudioSegment.from_file(ogg_path).export(wav_path, format="wav")
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            audio = recognizer.record(source)
-            try:
-                msg = recognizer.recognize_google(audio, language="pt-BR")
-                print("ÁUDIO RECONHECIDO:", msg)
-            except Exception as err:
-                print("ERRO AO RECONHECER ÁUDIO:", err)
-                return Response("<Response><Message>❌ Não consegui entender o áudio.</Message></Response>", mimetype="application/xml")
-        os.remove(ogg_path)
-        os.remove(wav_path)
+    msg = msg.lower()
 
-    print("MENSAGEM RECEBIDA:", msg)
+    if "resumo geral" in msg:
+        return gerar_resumo_geral()
+    if "resumo hoje" in msg:
+        return gerar_resumo_hoje()
+    if "resumo por categoria" in msg:
+        return gerar_resumo_categoria("todos")
+    if "resumo da larissa" in msg:
+        return gerar_resumo("LARISSA", 30, "Resumo do Mês")
+    if "resumo do thiago" in msg:
+        return gerar_resumo("THIAGO", 30, "Resumo do Mês")
+    if "resumo do mês" in msg:
+        return gerar_resumo("TODOS", 30, "Resumo do Mês")
+    if "resumo da semana" in msg:
+        return gerar_resumo("TODOS", 7, "Resumo da Semana")
+
     partes = [p.strip() for p in msg.split(",")]
+
     if len(partes) != 5:
-        return Response("<Response><Message>❌ Formato inválido. Envie assim: 27/04, mercado, compras, Larissa, 150</Message></Response>", mimetype="application/xml")
+        return Response("<Response><Message>❌ Formato inválido. Envie: Thiago, 27/04, mercado, compras, 150</Message></Response>", mimetype="application/xml")
 
-    data, categoria, descricao, responsavel, valor = partes
+    responsavel, data, _, descricao, valor = partes
 
-    # Converter data
     if data.lower() == "hoje":
         data_formatada = datetime.today().strftime("%d/%m/%Y")
     else:
@@ -85,8 +115,7 @@ def processar_mensagem():
         except:
             data_formatada = datetime.today().strftime("%d/%m/%Y")
 
-    # Ajustar textos e valor
-    categoria = categoria.upper()
+    categoria = classificar_categoria(descricao)
     descricao = descricao.upper()
     responsavel = responsavel.upper()
     try:
@@ -95,7 +124,6 @@ def processar_mensagem():
     except:
         valor_formatado = valor
 
-    # Enviar para planilha
     sheet.append_row([data_formatada, categoria, descricao, responsavel, valor_formatado])
     print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor_formatado])
 
@@ -108,36 +136,18 @@ def processar_mensagem():
         f"💸 {valor_formatado}"
     )
 
-    print("RESPOSTA TEXTO:", resposta_texto)
-
-    # Criar áudio e salvar
     static_dir = "static"
     os.makedirs(static_dir, exist_ok=True)
     audio_filename = os.path.join(static_dir, f"resposta_{uuid.uuid4().hex}.mp3")
     tts = gTTS(text=f"Despesa registrada com sucesso, {responsavel}! Categoria {categoria}, valor {valor_formatado}.", lang='pt')
     tts.save(audio_filename)
-
-    # Converter para ogg
     ogg_filename = audio_filename.replace(".mp3", ".ogg")
     AudioSegment.from_file(audio_filename).export(ogg_filename, format="ogg")
     os.remove(audio_filename)
 
     audio_url = f"https://assistente-financeiro.onrender.com/{ogg_filename}"
-    print("ÁUDIO:", audio_url)
 
-    # Enviar mensagens no WhatsApp
-    twilio_client.messages.create(
-        body=resposta_texto,
-        from_=twilio_number,
-        to=from_number
-    )
-    twilio_client.messages.create(
-        from_=twilio_number,
-        to=from_number,
-        media_url=[audio_url]
-    )
+    twilio_client.messages.create(body=resposta_texto, from_=twilio_number, to=from_number)
+    twilio_client.messages.create(from_=twilio_number, to=from_number, media_url=[audio_url])
 
     return Response("<Response></Response>", mimetype="application/xml")
-
-if __name__ == '__main__':
-    app.run(debug=True)
