@@ -11,3 +11,4 @@ SpeechRecognition
 whisper
 gtts
 python-dotenv
+ffmpeg
