@@ -31,11 +31,11 @@ twilio_client = Client(twilio_sid, twilio_token)
 
 # Dicionário com palavras-chave para classificação automática de categoria
 palavras_categoria = {
-    "mercado": ["mercado", "supermercado", "pão", "leite", "feira", "comida"],
+    "ALIMENTAÇÃO": ["mercado", "supermercado", "pão", "leite", "feira", "comida","restaurante", "lanche", "jantar", "almoço", "hamburguer", "refrigerante"],
     "transporte": ["uber", "99", "ônibus", "metro", "trem", "corrida", "combustível", "gasolina"],
     "lazer": ["cinema", "netflix", "bar", "show", "festa", "lazer"],
-    "moradia": ["aluguel", "condominio", "energia", "água", "internet", "luz"],
-    "refeição": ["restaurante", "lanche", "jantar", "almoço", "hamburguer", "pizza"]
+    "gastos fixos": ["aluguel", "condominio", "energia", "água", "internet", "luz"],
+    "higiene e saúde": ["farmácia", "remédio", "hidratante"]
 }
 
 def classificar_categoria(descricao):
@@ -135,26 +135,36 @@ def processar_mensagem():
     print("MENSAGEM ORIGINAL:", msg)
 
     # Processa áudio se enviado
-    if media_url and media_type and "audio" in media_type:
-        ogg_path = "audio.ogg"
-        wav_path = "audio.wav"
-        try:
-            response = requests.get(media_url)
-            with open(ogg_path, "wb") as f:
-                f.write(response.content)
-            AudioSegment.from_file(ogg_path).export(wav_path, format="wav")
-            model = whisper.load_model("base")
-            result = model.transcribe(wav_path, language="pt")
-            msg = result["text"]
-            print("ÁUDIO RECONHECIDO (Whisper):", msg)
-        except Exception as err:
-            print("ERRO AO PROCESSAR O ÁUDIO:", err)
-            import traceback
-            traceback.print_exc()
-            return Response("<Response><Message>❌ Houve um erro ao processar o áudio.</Message></Response>", mimetype="application/xml")
-        finally:
-            if os.path.exists(ogg_path): os.remove(ogg_path)
-            if os.path.exists(wav_path): os.remove(wav_path)
+if media_url and "audio" in media_type:
+    ogg_path = "audio.ogg"
+    wav_path = "audio.wav"
+    try:
+        # Baixa o áudio
+        response = requests.get(media_url)
+        with open(ogg_path, "wb") as f:
+            f.write(response.content)
+
+        # Valida o tamanho do arquivo baixado
+        if os.stat(ogg_path).st_size == 0:
+            raise Exception("Arquivo de áudio vazio ou corrompido.")
+
+        # Converte OGG para WAV
+        AudioSegment.from_file(ogg_path, format="ogg").export(wav_path, format="wav")
+
+        # Transcreve com Whisper
+        model = whisper.load_model("base")
+        result = model.transcribe(wav_path, language="pt")
+        msg = result["text"]
+        print("ÁUDIO RECONHECIDO (Whisper):", msg)
+    except Exception as err:
+        print("ERRO AO PROCESSAR O ÁUDIO:", err)
+        import traceback
+        traceback.print_exc()
+        return Response("<Response><Message>❌ Houve um problema ao processar o áudio enviado. Certifique-se de que o arquivo é compatível.</Message></Response>", mimetype="application/xml")
+    finally:
+        # Remove os arquivos temporários
+        if os.path.exists(ogg_path): os.remove(ogg_path)
+        if os.path.exists(wav_path): os.remove(wav_path)
 
     msg = msg.lower().strip()
 
