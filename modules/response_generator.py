@@ -36,7 +36,7 @@ class ResponseGenerator:
         except:
             return date_str
     
-    def generate_expense_confirmation(expense_data):
+def generate_expense_confirmation(expense_data):
     try:
         formatted_amount = self.format_currency(expense_data.get("amount", 0))
         category = expense_data.get("category", "").upper()
