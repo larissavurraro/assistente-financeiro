@@ -219,17 +219,17 @@ def processar_mensagem():
 
     # Registra a despesa na planilha
     sheet.append_row([data_formatada, categoria, descricao, responsavel, valor_formatado])
-    print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor_formatado])
+print("Despesa cadastrada:", [data_formatada, categoria, descricao, responsavel, valor_formatado])
 
-    resposta_texto = (
-        f"✅ Despesa registrada com sucesso!\n"
-        f"📅 {data_formatada}\n"
-        f"📂 {categoria}\n"
-        f"📝 {descricao}\n"
-        f"👤 {responsavel}\n"
-        f"💸 {valor_formatado}"
-    )
-
+# Mensagem para WhatsApp
+resposta_texto = (
+    f"✅ Despesa registrada com sucesso!\n\n"
+    f"📅 {data_formatada}\n"
+    f"📂 {categoria}\n"
+    f"📝 {descricao}\n"
+    f"👤 {responsavel}\n"
+    f"💸 {valor_formatado}"
+)
     # Geração do áudio de confirmação
     static_dir = "static"
     os.makedirs(static_dir, exist_ok=True)
