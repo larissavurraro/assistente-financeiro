@@ -28,11 +28,11 @@ twilio_client = Client(twilio_sid, twilio_token)
 
 # Palavras-chave para classificar automaticamente
 palavras_categoria = {
-    "mercado": ["mercado", "supermercado", "pão", "leite", "feira", "comida"],
+    "alimentação": ["mercado", "supermercado", "pão", "leite", "feira", "comida"],
     "transporte": ["uber", "99", "ônibus", "metro", "trem", "corrida", "combustível", "gasolina"],
     "lazer": ["cinema", "netflix", "bar", "show", "festa", "lazer"],
     "moradia": ["aluguel", "condominio", "energia", "água", "internet", "luz"],
-    "refeição": ["restaurante", "lanche", "jantar", "almoço", "hamburguer", "pizza"]
+    "saúde": ["farmácia", "higiene", "produto de limpeza", "remédio"]
 }
 
 def classificar_categoria(descricao):
