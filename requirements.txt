@@ -15,3 +15,4 @@ ffmpeg
 matplotlib 
 pillow 
 numpy
+openai-whisper
