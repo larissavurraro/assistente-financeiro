@@ -12,3 +12,6 @@ whisper
 gtts
 python-dotenv
 ffmpeg
+matplotlib 
+pillow 
+numpy
