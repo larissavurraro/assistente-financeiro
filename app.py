@@ -284,31 +284,47 @@ def gerar_resumo(from_number, responsavel, dias, titulo):
         contador = 0
 
         for r in registros:
+            data_str = r.get("Data", "")
+            if not data_str:
+                continue
             try:
-                data = datetime.strptime(r.get("Data", ""), "%d/%m/%Y")
-                resp = r.get("Responsável", "").upper()
-                if data >= limite and (responsavel.upper() == "TODOS" or resp == responsavel.upper()):
-                    valor = parse_valor(r.get("Valor", "0"))
-                    total += valor
-                    categoria = r.get("Categoria", "OUTROS")
-                    categorias[categoria] = categorias.get(categoria, 0) + valor
-                    contador += 1
-            except:
+                # Tenta diferentes formatos de data
+                try:
+                    data = datetime.strptime(data_str, "%d/%m/%Y")
+                except ValueError:
+                    data = datetime.strptime(data_str, "%Y-%m-%d")
+            except Exception as err:
+                logger.warning(f"Formato de data inválido: {data_str} | Erro: {err}")
                 continue
 
+            resp = r.get("Responsável", "").upper()
+            if data >= limite and (responsavel.upper() == "TODOS" or resp == responsavel.upper()):
+                valor = parse_valor(r.get("Valor", "0"))
+                total += valor
+                categoria = r.get("Categoria", "OUTROS")
+                categorias[categoria] = categorias.get(categoria, 0) + valor
+                contador += 1
+
         resumo = f"📋 {titulo} ({responsavel.title()}):\n\nTotal: {formatar_valor(total)}\nRegistros: {contador}"
+
         if categorias:
             categorias_ordenadas = sorted(categorias.items(), key=lambda x: x[1], reverse=True)
             labels = [cat for cat, _ in categorias_ordenadas]
             valores = [val for _, val in categorias_ordenadas]
             grafico_path = gerar_grafico('pizza', f'{titulo} - {responsavel.title()}', valores, labels)
             grafico_url = f"{BASE_URL}/static/{os.path.basename(grafico_path)}"
-            twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
-            twilio_client.messages.create(body=f"📊 Gráfico - {titulo}", from_=twilio_number, to=from_number, media_url=[grafico_url])
-        else:
-            twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
 
+            # Envia o gráfico separadamente
+            twilio_client.messages.create(
+                body=f"📊 Gráfico - {titulo} ({responsavel.title()})",
+                from_=twilio_number,
+                to=from_number,
+                media_url=[grafico_url]
+            )
+
+        # Envia mensagem de texto + áudio uma única vez
         return enviar_mensagem_audio(from_number, resumo)
+
     except Exception as e:
         logger.error(f"Erro no resumo personalizado: {e}")
         return Response(f"<Response><Message>❌ Erro ao gerar {titulo.lower()}.</Message></Response>", mimetype="application/xml")
@@ -332,6 +348,24 @@ def processar_mensagem():
             msg = processar_audio(media_url)
         except:
             return Response("<Response><Message>❌ Erro ao processar o áudio.</Message></Response>", mimetype="application/xml")
+
+    if "ajuda" in msg:
+        texto_ajuda = (
+            "🤖 *Assistente Financeiro - Comandos disponíveis:*\n\n"
+            "📌 *Registrar despesas:*\n"
+            "`Larissa, 28/04, mercado, compras, 150`\n"
+            "(formato: responsável, data, local, descrição, valor)\n\n"
+            "📊 *Ver resumos:*\n"
+            "- resumo geral\n"
+            "- resumo hoje\n"
+            "- resumo do mês\n"
+            "- resumo da semana\n"
+            "- resumo por categoria\n"
+            "- resumo da Larissa\n"
+            "- resumo do Thiago\n\n"
+            "🔉 *Também aceitamos mensagens de áudio!*"
+        )
+        return enviar_mensagem_audio(from_number, texto_ajuda)
 
     msg = (msg or "").lower()
     if "resumo geral" in msg:
@@ -372,11 +406,11 @@ def processar_mensagem():
     sheet.append_row([data_formatada, categoria, descricao, responsavel, valor_formatado])
     resposta = (
         f"✅ Despesa registrada!\n"
-        f"Data: {data_formatada}\n"
-        f"Categoria: {categoria}\n"
-        f"Descrição: {descricao}\n"
-        f"Responsável: {responsavel}\n"
-        f"Valor: {valor_formatado}"
+        f"📅 Data: {data_formatada}\n"
+        f"📂 Categoria: {categoria}\n"
+        f"📝 Descrição: {descricao}\n"
+        f"👤 Responsável: {responsavel}\n"
+        f"💰 Valor: {valor_formatado}"
     )
 
     twilio_client.messages.create(body=resposta, from_=twilio_number, to=from_number)
