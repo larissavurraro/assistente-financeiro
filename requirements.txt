@@ -16,3 +16,4 @@ matplotlib
 pillow 
 numpy
 datetime
+APScheduler
