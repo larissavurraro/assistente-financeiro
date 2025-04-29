@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')
 import numpy as np
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # Inicialização do Flask
 app = Flask(__name__)
@@ -39,6 +40,41 @@ twilio_sid = os.environ.get("TWILIO_SID")
 twilio_token = os.environ.get("TWILIO_TOKEN")
 twilio_number = os.environ.get("TWILIO_NUMBER")
 twilio_client = Client(twilio_sid, twilio_token)
+
+def enviar_lembrete():
+    try:
+        contatos = [
+            {
+                "nome": "Larissa",
+                "numero": "whatsapp:+5511975220021"
+            },
+            {
+                "nome": "Thiago",
+                "numero": "whatsapp:+55N11977052756"
+            }
+        ]
+
+        for contato in contatos:
+            if contato["nome"].upper() == "LARISSA":
+                mensagem = "🔔 Oi Larissa! Já cadastrou suas despesas de hoje? 📝"
+            elif contato["nome"].upper() == "THIAGO":
+                mensagem = "🔔 Oi Thiago! Já cadastrou suas despesas de hoje? 💸"
+            else:
+                mensagem = "🔔 Lembrete: não esqueça de registrar suas despesas hoje! 😉"
+
+            twilio_client.messages.create(
+                body=mensagem,
+                from_=twilio_number,
+                to=contato["numero"]
+            )
+            logger.info(f"Lembrete enviado para {contato['nome']} ({contato['numero']})")
+
+    except Exception as e:
+        logger.error(f"Erro ao enviar lembretes personalizados: {e}")
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(enviar_lembrete, 'cron', hour=20, minute=0)  # Ajuste o horário aqui se quiser
+scheduler.start()
 
 # Funções auxiliares
 def parse_valor(valor_str):
