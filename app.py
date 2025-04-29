@@ -11,6 +11,7 @@ from pydub import AudioSegment
 from gtts import gTTS
 import whisper
 import logging
+import tempfile
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO, 
@@ -50,6 +51,11 @@ def verificar_colunas():
         sheet.append_row(expected_headers)
         return expected_headers
     
+    # Verifica se todos os cabeçalhos esperados estão presentes
+    for header in expected_headers:
+        if header not in headers:
+            logger.warning(f"Cabeçalho '{header}' não encontrado na planilha. Estrutura atual: {headers}")
+    
     # Retorna os cabeçalhos existentes
     return headers
 
@@ -62,6 +68,9 @@ DESCRICAO_IDX = HEADERS.index("Descrição") if "Descrição" in HEADERS else 2
 RESPONSAVEL_IDX = HEADERS.index("Responsável") if "Responsável" in HEADERS else 3
 VALOR_IDX = HEADERS.index("Valor") if "Valor" in HEADERS else 4
 
+logger.info(f"Estrutura da planilha: {HEADERS}")
+logger.info(f"Índices: Data={DATA_IDX}, Categoria={CATEGORIA_IDX}, Descrição={DESCRICAO_IDX}, Responsável={RESPONSAVEL_IDX}, Valor={VALOR_IDX}")
+
 # Configuração do Twilio
 twilio_sid = os.environ.get("TWILIO_SID")
 twilio_token = os.environ.get("TWILIO_TOKEN")
@@ -73,11 +82,11 @@ twilio_client = Client(twilio_sid, twilio_token)
 
 # Palavras-chave para classificação automática
 palavras_categoria = {
-    "ALIMENTAÇÃO": ["mercado", "supermercado", "pão", "leite", "feira", "comida", "restaurante", "lanche", "jantar", "almoço", "hamburguer", "refrigerante"],
-    "TRANSPORTE": ["uber", "99", "ônibus", "metro", "metrô", "trem", "corrida", "combustível", "gasolina"],
-    "LAZER": ["cinema", "netflix", "bar", "show", "festa", "lazer"],
-    "GASTOS FIXOS": ["aluguel", "condominio", "condomínio", "energia", "água", "internet", "luz"],
-    "HIGIENE E SAÚDE": ["farmácia", "remédio", "hidratante"]
+    "ALIMENTAÇÃO": ["mercado", "supermercado", "pão", "leite", "feira", "comida", "restaurante", "lanche", "jantar", "almoço", "hamburguer", "refrigerante", "pizza", "ifood", "delivery"],
+    "TRANSPORTE": ["uber", "99", "ônibus", "metro", "metrô", "trem", "corrida", "combustível", "gasolina", "estacionamento", "pedágio", "taxi", "táxi"],
+    "LAZER": ["cinema", "netflix", "bar", "show", "festa", "lazer", "passeio", "viagem", "hotel", "streaming", "disney", "prime", "hbo"],
+    "GASTOS FIXOS": ["aluguel", "condominio", "condomínio", "energia", "água", "internet", "luz", "iptu", "seguro", "parcela", "prestação", "financiamento"],
+    "HIGIENE E SAÚDE": ["farmácia", "remédio", "hidratante", "médico", "consulta", "exame", "hospital", "dentista", "vitamina", "suplemento", "academia"]
 }
 
 def classificar_categoria(descricao):
@@ -94,7 +103,7 @@ def parse_valor(valor_str):
     
     try:
         # Remove caracteres não numéricos, exceto ponto e vírgula
-        valor_limpo = ''.join(c for c in str(valor_str).replace("R$", "") if c.isdigit() or c in '.,')
+        valor_limpo = ''.join(c for c in str(valor_str).replace("R$", "").strip() if c.isdigit() or c in '.,')
         # Trata formato brasileiro (vírgula como separador decimal)
         if ',' in valor_limpo:
             # Se tiver mais de uma vírgula, considera apenas a última
@@ -176,9 +185,12 @@ def enviar_mensagem_audio(from_number, texto):
 def processar_audio(media_url):
     """Processa um arquivo de áudio e retorna o texto transcrito"""
     try:
-        audio_id = uuid.uuid4().hex
-        audio_path = os.path.join(STATIC_DIR, f"received_{audio_id}.ogg")
-        wav_path = os.path.join(STATIC_DIR, f"received_{audio_id}.wav")
+        # Usa arquivos temporários para evitar problemas de permissão
+        with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as temp_ogg:
+            audio_path = temp_ogg.name
+        
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+            wav_path = temp_wav.name
         
         # Baixa o arquivo de áudio
         response = requests.get(media_url)
@@ -187,9 +199,26 @@ def processar_audio(media_url):
         
         logger.info(f"Áudio recebido e salvo: {audio_path}")
         
-        # Converte para WAV (formato aceito pelo Whisper)
-        AudioSegment.from_file(audio_path).export(wav_path, format="wav")
-        logger.info(f"Áudio convertido para WAV: {wav_path}")
+        # Tenta diferentes formatos de conversão
+        try:
+            # Tenta converter como formato padrão
+            AudioSegment.from_file(audio_path).export(wav_path, format="wav")
+            logger.info(f"Áudio convertido para WAV: {wav_path}")
+        except Exception as e:
+            logger.error(f"Erro na conversão padrão: {e}")
+            try:
+                # Tenta como MP4
+                AudioSegment.from_file(audio_path, format="mp4").export(wav_path, format="wav")
+                logger.info("Conversão alternativa bem-sucedida (mp4 -> wav)")
+            except Exception as e2:
+                logger.error(f"Erro na conversão MP4: {e2}")
+                try:
+                    # Tenta como MP3
+                    AudioSegment.from_file(audio_path, format="mp3").export(wav_path, format="wav")
+                    logger.info("Conversão alternativa bem-sucedida (mp3 -> wav)")
+                except Exception as e3:
+                    logger.error(f"Todas as tentativas de conversão falharam: {e3}")
+                    return None
         
         # Carrega modelo pequeno para economizar recursos
         model = whisper.load_model("tiny")
@@ -201,8 +230,11 @@ def processar_audio(media_url):
         logger.info(f"Transcrição concluída: {texto}")
         
         # Limpa arquivos temporários
-        os.remove(audio_path)
-        os.remove(wav_path)
+        try:
+            os.remove(audio_path)
+            os.remove(wav_path)
+        except Exception as e:
+            logger.error(f"Erro ao limpar arquivos temporários: {e}")
         
         return texto
     except Exception as e:
@@ -227,7 +259,7 @@ def gerar_resumo_geral(from_number):
 
 def gerar_resumo_hoje(from_number):
     try:
-        hoje = datetime.today().strftime("%d/%m/%Y")
+        hoje = datetime.now().strftime("%d/%m/%Y")  # Usa now() em vez de today()
         registros = sheet.get_all_records()
         total = 0.0
         
@@ -274,7 +306,7 @@ def gerar_resumo_categoria(from_number):
 def gerar_resumo(from_number, responsavel, dias, titulo):
     try:
         registros = sheet.get_all_records()
-        limite = datetime.today() - timedelta(days=dias)
+        limite = datetime.now() - timedelta(days=dias)  # Usa now() em vez de today()
         total = 0.0
         contagem = 0
 
@@ -315,24 +347,38 @@ def whatsapp():
         return Response("<Response><Message>❌ Erro interno ao processar a mensagem.</Message></Response>", mimetype="application/xml")
 
 def processar_mensagem():
-    msg = request.form.get("Body", "")
+    msg = request.form.get("Body", "").strip()  # Adiciona strip() aqui para remover espaços
     from_number = request.form.get("From")
     media_url = request.form.get("MediaUrl0")
     media_type = request.form.get("MediaContentType0")
 
-    logger.info(f"MENSAGEM RECEBIDA - De: {from_number}, Conteúdo: {msg}, Tipo de mídia: {media_type}")
+    # Log detalhado de todos os parâmetros recebidos
+    logger.info(f"MENSAGEM RECEBIDA - De: {from_number}")
+    logger.info(f"Conteúdo: {msg}")
+    logger.info(f"Tipo de mídia: {media_type}")
+    logger.info(f"URL da mídia: {media_url}")
+    
+    # Log de todos os parâmetros para depuração
+    for key, value in request.form.items():
+        logger.info(f"Parâmetro: {key} = {value}")
 
     if not from_number:
         return Response("<Response><Message>❌ Número de origem não identificado.</Message></Response>", mimetype="application/xml")
 
     # Processamento de áudio
-    if media_url and "audio" in media_type:
+    if media_url and media_type and ("audio" in media_type.lower() or "voice" in media_type.lower()):
         logger.info(f"Processando áudio de {from_number}: {media_url}")
         texto_transcrito = processar_audio(media_url)
         
         if texto_transcrito:
-            msg = texto_transcrito
+            msg = texto_transcrito.strip()
             logger.info(f"Áudio transcrito com sucesso: {msg}")
+            # Envia confirmação da transcrição para o usuário
+            twilio_client.messages.create(
+                body=f"🎤 Transcrição do áudio:\n\n"{msg}"",
+                from_=twilio_number,
+                to=from_number
+            )
         else:
             return Response("<Response><Message>❌ Não foi possível processar o áudio. Por favor, envie uma mensagem de texto.</Message></Response>", mimetype="application/xml")
 
@@ -379,15 +425,16 @@ def processar_mensagem():
         )
 
     responsavel, data, categoria_input, descricao, valor = partes
+    logger.info(f"Dados recebidos: Responsável={responsavel}, Data={data}, Categoria={categoria_input}, Descrição={descricao}, Valor={valor}")
 
     # Processamento da data
     if data.lower() == "hoje":
-        data_formatada = datetime.today().strftime("%d/%m/%Y")
+        data_formatada = datetime.now().strftime("%d/%m/%Y")  # Usa now() em vez de today()
     else:
         try:
             # Tenta interpretar a data no formato dd/mm
             parsed_date = datetime.strptime(data, "%d/%m")
-            parsed_date = parsed_date.replace(year=datetime.today().year)
+            parsed_date = parsed_date.replace(year=datetime.now().year)
             data_formatada = parsed_date.strftime("%d/%m/%Y")
         except:
             try:
@@ -401,15 +448,19 @@ def processar_mensagem():
                         continue
                 else:
                     # Se nenhum formato funcionar, usa a data de hoje
-                    data_formatada = datetime.today().strftime("%d/%m/%Y")
+                    data_formatada = datetime.now().strftime("%d/%m/%Y")
             except:
-                data_formatada = datetime.today().strftime("%d/%m/%Y")
+                data_formatada = datetime.now().strftime("%d/%m/%Y")
+    
+    logger.info(f"Data formatada: {data_formatada}")
 
     # Determina a categoria (usa a informada ou classifica automaticamente)
     if categoria_input.strip() and categoria_input.upper() != "OUTROS":
         categoria = categoria_input.upper()
     else:
         categoria = classificar_categoria(descricao)
+    
+    logger.info(f"Categoria determinada: {categoria}")
     
     descricao = descricao.upper()
     responsavel = responsavel.upper()
@@ -418,8 +469,10 @@ def processar_mensagem():
     try:
         valor_float = parse_valor(valor)
         valor_formatado = formatar_valor(valor_float)
+        logger.info(f"Valor processado: {valor} -> {valor_float} -> {valor_formatado}")
     except:
         valor_formatado = valor
+        logger.warning(f"Falha ao processar valor: {valor}")
 
     try:
         # Prepara a linha conforme a ordem das colunas na planilha
@@ -430,17 +483,21 @@ def processar_mensagem():
         nova_linha[RESPONSAVEL_IDX] = responsavel
         nova_linha[VALOR_IDX] = valor_formatado
         
+        # Log detalhado da linha que será inserida
+        logger.info(f"Nova linha preparada: {nova_linha}")
+        logger.info(f"Índices usados: Data={DATA_IDX}, Categoria={CATEGORIA_IDX}, Descrição={DESCRICAO_IDX}, Responsável={RESPONSAVEL_IDX}, Valor={VALOR_IDX}")
+        
         # Adiciona a despesa na planilha
         sheet.append_row(nova_linha)
-        logger.info(f"Despesa cadastrada: {nova_linha}")
+        logger.info(f"Despesa cadastrada com sucesso: {nova_linha}")
 
         resposta_texto = (
             f"✅ Despesa registrada com sucesso!\n\n"
-            f"📅 {data_formatada}\n"
-            f"📂 {categoria}\n"
-            f"📝 {descricao}\n"
-            f"👤 {responsavel}\n"
-            f"💸 {valor_formatado}"
+            f"📅 Data: {data_formatada}\n"
+            f"📂 Categoria: {categoria}\n"
+            f"📝 Descrição: {descricao}\n"
+            f"👤 Responsável: {responsavel}\n"
+            f"💸 Valor: {valor_formatado}"
         )
 
         return enviar_mensagem_audio(from_number, resposta_texto)
@@ -461,6 +518,29 @@ def index():
         </body>
     </html>
     """.format(datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+
+@app.route("/test-audio")
+def test_audio():
+    """Rota de teste para verificar a geração de áudio"""
+    texto = "Este é um teste de geração de áudio. O sistema está funcionando corretamente."
+    audio_path = gerar_audio(texto)
+    if audio_path:
+        return f"""
+        <html>
+            <head><title>Teste de Áudio</title></head>
+            <body>
+                <h1>Teste de Geração de Áudio</h1>
+                <p>Áudio gerado com sucesso!</p>
+                <audio controls>
+                    <source src="/static/{os.path.basename(audio_path)}" type="audio/mpeg">
+                    Seu navegador não suporta o elemento de áudio.
+                </audio>
+                <p><a href="/static/{os.path.basename(audio_path)}">Download do áudio</a></p>
+            </body>
+        </html>
+        """
+    else:
+        return "Falha ao gerar áudio"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
