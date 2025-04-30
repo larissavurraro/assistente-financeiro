@@ -405,22 +405,32 @@ def whatsapp():
         logger.error(f"Erro interno: {e}")
         return Response("<Response><Message>❌ Erro interno ao processar.</Message></Response>", mimetype="application/xml")
 
-if media_url and "audio" in (media_type or ""):
-    try:
-        msg = processar_audio(media_url)
-        if not msg:
-            logger.warning("Transcrição retornou None.")
-            return Response("<Response><Message>❌ Não foi possível entender o áudio.</Message></Response>", mimetype="application/xml")
-    except Exception as e:
-        logger.error(f"Erro ao processar o áudio: {e}")
-        return Response("<Response><Message>❌ Erro ao processar o áudio.</Message></Response>", mimetype="application/xml")
+def processar_mensagem():
+    msg = request.form.get("Body", "")
+    from_number = request.form.get("From")
+    media_url = request.form.get("MediaUrl0")
+    media_type = request.form.get("MediaContentType0")
 
+    logger.info(f"Mensagem recebida de {from_number}: {msg}")
+
+    if media_url and "audio" in (media_type or ""):
+        try:
+            msg = processar_audio(media_url)
+            if not msg:
+                return Response("<Response><Message>❌ Não foi possível entender o áudio.</Message></Response>", mimetype="application/xml")
+        except Exception as e:
+            logger.error(f"Erro ao processar o áudio: {e}")
+            return Response("<Response><Message>❌ Erro ao processar o áudio.</Message></Response>", mimetype="application/xml")
+
+    msg = (msg or "").lower()
+
+    # Comandos de ajuda e resumos
     if "ajuda" in msg:
         texto_ajuda = (
             "🤖 *Assistente Financeiro - Comandos disponíveis:*\n\n"
             "📌 *Registrar despesas:*\n"
-            "`Larissa, 28/04, mercado, compras, 150`\n"
-            "(formato: responsável, data, local, descrição, valor)\n\n"
+            "`hoje, uber, 25`\n"
+            "(ou use uma data como `27/04`)\n\n"
             "📊 *Ver resumos:*\n"
             "- resumo geral\n"
             "- resumo hoje\n"
@@ -428,12 +438,11 @@ if media_url and "audio" in (media_type or ""):
             "- resumo da semana\n"
             "- resumo por categoria\n"
             "- resumo da Larissa\n"
-            "- resumo do Thiago\n\n"
-            "🔉 *Também aceitamos mensagens de áudio!*"
+            "- resumo do Thiago"
         )
-        return enviar_mensagem_audio(from_number, texto_ajuda)
+        twilio_client.messages.create(body=texto_ajuda, from_=twilio_number, to=from_number)
+        return Response("<Response></Response>", mimetype="application/xml")
 
-    msg = (msg or "").lower()
     if "resumo geral" in msg:
         return gerar_resumo_geral(from_number)
     if "resumo hoje" in msg:
@@ -449,12 +458,17 @@ if media_url and "audio" in (media_type or ""):
     if "resumo do thiago" in msg:
         return gerar_resumo(from_number, "THIAGO", 30, "Resumo do Mês")
 
-    # Registro de despesa por texto
+    # Registro de despesa simplificado: "hoje, descrição, valor"
     partes = [p.strip() for p in msg.split(",")]
-    if len(partes) != 5:
-        return Response("<Response><Message>❌ Formato inválido. Envie: Thiago, 27/04, mercado, compras, 150</Message></Response>", mimetype="application/xml")
+    if len(partes) != 3:
+        return Response("<Response><Message>❌ Formato inválido. Envie: hoje, descrição, valor</Message></Response>", mimetype="application/xml")
 
-    responsavel, data, _, descricao, valor = partes
+    data, descricao, valor = partes
+
+    # Detecta o responsável pelo número
+    responsavel = responsaveis_por_numero.get(from_number, "DESCONHECIDO")
+
+    # Trata a data
     if data.lower() == "hoje":
         data_formatada = datetime.today().strftime("%d/%m/%Y")
     else:
@@ -463,13 +477,19 @@ if media_url and "audio" in (media_type or ""):
         except:
             data_formatada = datetime.today().strftime("%d/%m/%Y")
 
+    # Classifica a categoria pela descrição
     categoria = classificar_categoria(descricao)
+
+    # Normaliza os dados
     descricao = descricao.upper()
     responsavel = responsavel.upper()
     valor_float = parse_valor(valor)
     valor_formatado = formatar_valor(valor_float)
 
+    # Salva na planilha
     sheet.append_row([data_formatada, categoria, descricao, responsavel, valor_formatado])
+
+    # Envia a confirmação
     resposta = (
         f"✅ Despesa registrada!\n"
         f"📅 Data: {data_formatada}\n"
@@ -480,7 +500,7 @@ if media_url and "audio" in (media_type or ""):
     )
 
     twilio_client.messages.create(body=resposta, from_=twilio_number, to=from_number)
-    return enviar_mensagem_audio(from_number, resposta)
+    return Response("<Response></Response>", mimetype="application/xml")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
