@@ -208,7 +208,7 @@ def gerar_resumo_geral(from_number):
 
         twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
         twilio_client.messages.create(body="📊 Gráfico de despesas", from_=twilio_number, to=from_number, media_url=[grafico_url])
-        return enviar_mensagem_audio(from_number, resumo)
+        return Response("<Response></Response>", mimetype="application/xml")
     except Exception as e:
         logger.error(f"Erro no resumo geral: {e}")
         return Response("<Response><Message>❌ Erro no resumo geral.</Message></Response>", mimetype="application/xml")
@@ -240,7 +240,7 @@ def gerar_resumo_hoje(from_number):
             resumo += "\n\nNão há despesas registradas para hoje."
             twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
 
-        return enviar_mensagem_audio(from_number, resumo)
+        return Response("<Response></Response>", mimetype="application/xml")
     except Exception as e:
         logger.error(f"Erro no resumo de hoje: {e}")
         return Response("<Response><Message>❌ Erro no resumo de hoje.</Message></Response>", mimetype="application/xml")
@@ -270,7 +270,7 @@ def gerar_resumo_categoria(from_number):
         twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
         twilio_client.messages.create(body="📊 Gráfico por categoria", from_=twilio_number, to=from_number, media_url=[grafico_url])
 
-        return enviar_mensagem_audio(from_number, resumo)
+        return Response("<Response></Response>", mimetype="application/xml")
     except Exception as e:
         logger.error(f"Erro no resumo por categoria: {e}")
         return Response("<Response><Message>❌ Erro no resumo por categoria.</Message></Response>", mimetype="application/xml")
@@ -306,7 +306,7 @@ def gerar_resumo_mensal(from_number):
         grafico_url = f"{BASE_URL}/static/{os.path.basename(grafico_path)}"
         twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
         twilio_client.messages.create(body="📊 Gráfico mensal", from_=twilio_number, to=from_number, media_url=[grafico_url])
-        return enviar_mensagem_audio(from_number, resumo)
+        return Response("<Response></Response>", mimetype="application/xml")
     except Exception as e:
         logger.error(f"Erro no resumo mensal: {e}")
         return Response("<Response><Message>❌ Erro no resumo mensal.</Message></Response>", mimetype="application/xml")
@@ -324,7 +324,6 @@ def gerar_resumo(from_number, responsavel, dias, titulo):
             if not data_str:
                 continue
             try:
-                # Tenta diferentes formatos de data
                 try:
                     data = datetime.strptime(data_str, "%d/%m/%Y")
                 except ValueError:
@@ -349,17 +348,17 @@ def gerar_resumo(from_number, responsavel, dias, titulo):
             valores = [val for _, val in categorias_ordenadas]
             grafico_path = gerar_grafico('pizza', f'{titulo} - {responsavel.title()}', valores, labels)
             grafico_url = f"{BASE_URL}/static/{os.path.basename(grafico_path)}"
-
-            # Envia o gráfico separadamente
+            twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
             twilio_client.messages.create(
                 body=f"📊 Gráfico - {titulo} ({responsavel.title()})",
                 from_=twilio_number,
                 to=from_number,
                 media_url=[grafico_url]
             )
+        else:
+            twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
 
-        # Envia mensagem de texto + áudio uma única vez
-        return enviar_mensagem_audio(from_number, resumo)
+        return Response("<Response></Response>", mimetype="application/xml")
 
     except Exception as e:
         logger.error(f"Erro no resumo personalizado: {e}")
