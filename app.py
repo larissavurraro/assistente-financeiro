@@ -134,21 +134,54 @@ def enviar_mensagem_audio(from_number, texto):
         logger.error(f"Erro ao enviar mensagem: {e}")
         return Response("<Response></Response>", mimetype="application/xml")
 
+import subprocess
+
+def convert_to_wav(input_path, output_path):
+    try:
+        result = subprocess.run([
+            "ffmpeg", "-y", "-i", input_path, "-ar", "16000", "-ac", "1", output_path
+        ], capture_output=True, text=True)
+
+        if result.returncode != 0:
+            logger.error(f"Erro na conversão com ffmpeg: {result.stderr}")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Falha ao executar ffmpeg: {e}")
+        return False
+
 def processar_audio(media_url):
     try:
         audio_id = uuid.uuid4().hex
         audio_path = os.path.join(STATIC_DIR, f"received_{audio_id}.ogg")
         wav_path = os.path.join(STATIC_DIR, f"received_{audio_id}.wav")
+
+        # Baixa o arquivo de áudio
         response = requests.get(media_url)
+        if response.status_code != 200:
+            logger.error(f"Erro ao baixar áudio: status {response.status_code}")
+            return None
+
         with open(audio_path, "wb") as f:
             f.write(response.content)
-        AudioSegment.from_file(audio_path).export(wav_path, format="wav")
+        logger.info(f"Áudio salvo em: {audio_path}")
+
+        # Converte para WAV
+        sucesso = convert_to_wav(audio_path, wav_path)
+        if not sucesso:
+            return None
+
+        # Transcreve com Whisper
         model = whisper.load_model("tiny")
         result = model.transcribe(wav_path, language="pt")
         texto = result["text"]
+
         os.remove(audio_path)
         os.remove(wav_path)
-        return texto
+
+        logger.info(f"Transcrição: {texto}")
+        return texto.strip()
+
     except Exception as e:
         logger.error(f"Erro ao processar áudio: {e}")
         return None
@@ -372,17 +405,15 @@ def whatsapp():
         logger.error(f"Erro interno: {e}")
         return Response("<Response><Message>❌ Erro interno ao processar.</Message></Response>", mimetype="application/xml")
 
-def processar_mensagem():
-    msg = request.form.get("Body", "")
-    from_number = request.form.get("From")
-    media_url = request.form.get("MediaUrl0")
-    media_type = request.form.get("MediaContentType0")
-
-    if media_url and "audio" in media_type:
-        try:
-            msg = processar_audio(media_url)
-        except:
-            return Response("<Response><Message>❌ Erro ao processar o áudio.</Message></Response>", mimetype="application/xml")
+if media_url and "audio" in (media_type or ""):
+    try:
+        msg = processar_audio(media_url)
+        if not msg:
+            logger.warning("Transcrição retornou None.")
+            return Response("<Response><Message>❌ Não foi possível entender o áudio.</Message></Response>", mimetype="application/xml")
+    except Exception as e:
+        logger.error(f"Erro ao processar o áudio: {e}")
+        return Response("<Response><Message>❌ Erro ao processar o áudio.</Message></Response>", mimetype="application/xml")
 
     if "ajuda" in msg:
         texto_ajuda = (
