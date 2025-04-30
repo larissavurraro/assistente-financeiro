@@ -50,7 +50,7 @@ def enviar_lembrete():
             },
             {
                 "nome": "Thiago",
-                "numero": "whatsapp:+55N11977052756"
+                "numero": "whatsapp:+5511977052756"
             }
         ]
 
