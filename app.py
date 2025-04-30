@@ -41,6 +41,12 @@ twilio_token = os.environ.get("TWILIO_TOKEN")
 twilio_number = os.environ.get("TWILIO_NUMBER")
 twilio_client = Client(twilio_sid, twilio_token)
 
+# Mapeamento de número para responsável
+responsaveis_por_numero = {
+    "whatsapp:+5511975220021": "LARISSA",
+    "whatsapp:+5511977052756": "THIAGO"
+}
+
 def enviar_lembrete():
     try:
         contatos = [
