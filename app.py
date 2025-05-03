@@ -193,40 +193,76 @@ def processar_audio(media_url):
         return None
 
 def gerar_grafico(tipo, titulo, dados, categorias=None, nome_arquivo=None):
-    plt.figure(figsize=(10, 6))
-    plt.title(titulo)
-    plt.rcParams.update({'font.size': 14})
+    try:
+        plt.figure(figsize=(10, 6))
+        plt.title(titulo)
+        plt.rcParams.update({'font.size': 14})
 
-    if tipo == 'barra':
-        plt.bar(categorias, dados)
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
-    elif tipo == 'pizza':
-        if len(categorias) > 6:
-            top_indices = np.argsort(dados)[-5:]
-            top_categorias = [categorias[i] for i in top_indices]
-            top_dados = [dados[i] for i in top_indices]
-            outros_valor = sum(d for i, d in enumerate(dados) if i not in top_indices)
-            top_categorias.append('Outros')
-            top_dados.append(outros_valor)
-            categorias = top_categorias
-            dados = top_dados
-        plt.pie(dados, labels=categorias, autopct='%1.1f%%', startangle=90, shadow=True)
-        plt.axis('equal')
-    elif tipo == 'linha':
-        plt.plot(categorias, dados, marker='o', linestyle='-')
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
+        if tipo == 'barra':
+            plt.bar(categorias, dados)
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
+        elif tipo == 'pizza':
+            if len(categorias) > 6:
+                top_indices = np.argsort(dados)[-5:]
+                top_categorias = [categorias[i] for i in top_indices]
+                top_dados = [dados[i] for i in top_indices]
+                outros_valor = sum(d for i, d in enumerate(dados) if i not in top_indices)
+                top_categorias.append('Outros')
+                top_dados.append(outros_valor)
+                categorias = top_categorias
+                dados = top_dados
+            plt.pie(dados, labels=categorias, autopct='%1.1f%%', startangle=90, shadow=True)
+            plt.axis('equal')
+        elif tipo == 'linha':
+            plt.plot(categorias, dados, marker='o', linestyle='-')
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
 
-    if not nome_arquivo:
-        nome_arquivo = f"grafico_{uuid.uuid4().hex}.png"
-    caminho_arquivo = os.path.join(STATIC_DIR, nome_arquivo)
-    plt.savefig(caminho_arquivo, dpi=100, bbox_inches='tight')
-    plt.close()
-    return caminho_arquivo
+        if not nome_arquivo:
+            nome_arquivo = f"grafico_{uuid.uuid4().hex}.png"
+        caminho_arquivo = os.path.join(STATIC_DIR, nome_arquivo)
+        
+        # Garantir que o diretório existe
+        os.makedirs(os.path.dirname(caminho_arquivo), exist_ok=True)
+        
+        plt.savefig(caminho_arquivo, dpi=100, bbox_inches='tight')
+        plt.close()
+        logger.info(f"Gráfico gerado com sucesso: {caminho_arquivo}")
+        return caminho_arquivo
+    except Exception as e:
+        logger.error(f"Erro ao gerar gráfico: {e}")
+        return None
+
+def enviar_mensagens_twilio(from_number, texto, grafico_url=None):
+    """Função auxiliar para enviar mensagens via Twilio com tratamento de erros"""
+    try:
+        # Enviar mensagem de texto
+        msg_text = twilio_client.messages.create(
+            body=texto,
+            from_=twilio_number,
+            to=from_number
+        )
+        logger.info(f"Mensagem de texto enviada: {msg_text.sid}")
+        
+        # Se houver gráfico, enviar como mídia
+        if grafico_url:
+            msg_media = twilio_client.messages.create(
+                body="📊 Gráfico de despesas",
+                from_=twilio_number,
+                to=from_number,
+                media_url=[grafico_url]
+            )
+            logger.info(f"Mensagem com mídia enviada: {msg_media.sid}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Erro ao enviar mensagens via Twilio: {e}")
+        return False
 
 def gerar_resumo_geral(from_number):
     try:
+        logger.info(f"Gerando resumo geral para {from_number}")
         registros = sheet.get_all_records()
         total = 0.0
         categorias = {}
@@ -239,21 +275,56 @@ def gerar_resumo_geral(from_number):
             categorias[categoria] = categorias.get(categoria, 0) + valor_float
 
         resumo = f"📊 Resumo Geral:\n\nTotal registrado: {formatar_valor(total)}"
+        
+        # Verificar se há categorias para evitar erro ao gerar gráfico vazio
+        if not categorias:
+            twilio_client.messages.create(
+                body=resumo + "\n\nNão há despesas registradas.",
+                from_=twilio_number,
+                to=from_number
+            )
+            return Response("<Response></Response>", mimetype="application/xml")
+            
         categorias_ordenadas = sorted(categorias.items(), key=lambda x: x[1], reverse=True)
         labels = [cat for cat, _ in categorias_ordenadas]
         valores = [val for _, val in categorias_ordenadas]
+        
         grafico_path = gerar_grafico('pizza', 'Distribuição de Despesas', valores, labels)
+        
+        if not grafico_path:
+            # Se falhar ao gerar o gráfico, enviar apenas o texto
+            twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
+            return Response("<Response></Response>", mimetype="application/xml")
+            
         grafico_url = f"{BASE_URL}/static/{os.path.basename(grafico_path)}"
-
-        twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
-        twilio_client.messages.create(body="📊 Gráfico de despesas", from_=twilio_number, to=from_number, media_url=[grafico_url])
+        
+        # Enviar mensagens
+        sucesso = enviar_mensagens_twilio(from_number, resumo, grafico_url)
+        
+        if not sucesso:
+            # Tentar enviar apenas o texto como fallback
+            twilio_client.messages.create(
+                body=resumo + "\n\n(Não foi possível gerar o gráfico)",
+                from_=twilio_number,
+                to=from_number
+            )
+            
         return Response("<Response></Response>", mimetype="application/xml")
     except Exception as e:
         logger.error(f"Erro no resumo geral: {e}")
+        try:
+            twilio_client.messages.create(
+                body="❌ Erro ao gerar resumo geral. Por favor, tente novamente mais tarde.",
+                from_=twilio_number,
+                to=from_number
+            )
+        except:
+            pass
         return Response("<Response><Message>❌ Erro no resumo geral.</Message></Response>", mimetype="application/xml")
 
 def gerar_resumo_hoje(from_number):
     try:
+        logger.info(f"Gerando resumo de hoje para {from_number}")
         hoje = datetime.now().strftime("%d/%m/%Y")
         registros = sheet.get_all_records()
         total = 0.0
@@ -267,25 +338,52 @@ def gerar_resumo_hoje(from_number):
                 categorias[categoria] = categorias.get(categoria, 0) + valor
 
         resumo = f"📅 Resumo de Hoje ({hoje}):\n\nTotal registrado: {formatar_valor(total)}"
-        if categorias:
-            categorias_ordenadas = sorted(categorias.items(), key=lambda x: x[1], reverse=True)
-            labels = [cat for cat, _ in categorias_ordenadas]
-            valores = [val for _, val in categorias_ordenadas]
-            grafico_path = gerar_grafico('pizza', f'Despesas de Hoje ({hoje})', valores, labels)
-            grafico_url = f"{BASE_URL}/static/{os.path.basename(grafico_path)}"
-            twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
-            twilio_client.messages.create(body="📊 Despesas de hoje", from_=twilio_number, to=from_number, media_url=[grafico_url])
-        else:
+        
+        if not categorias:
             resumo += "\n\nNão há despesas registradas para hoje."
             twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
-
+            return Response("<Response></Response>", mimetype="application/xml")
+            
+        categorias_ordenadas = sorted(categorias.items(), key=lambda x: x[1], reverse=True)
+        labels = [cat for cat, _ in categorias_ordenadas]
+        valores = [val for _, val in categorias_ordenadas]
+        
+        grafico_path = gerar_grafico('pizza', f'Despesas de Hoje ({hoje})', valores, labels)
+        
+        if not grafico_path:
+            # Se falhar ao gerar o gráfico, enviar apenas o texto
+            twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
+            return Response("<Response></Response>", mimetype="application/xml")
+            
+        grafico_url = f"{BASE_URL}/static/{os.path.basename(grafico_path)}"
+        
+        # Enviar mensagens
+        sucesso = enviar_mensagens_twilio(from_number, resumo, grafico_url)
+        
+        if not sucesso:
+            # Tentar enviar apenas o texto como fallback
+            twilio_client.messages.create(
+                body=resumo + "\n\n(Não foi possível gerar o gráfico)",
+                from_=twilio_number,
+                to=from_number
+            )
+            
         return Response("<Response></Response>", mimetype="application/xml")
     except Exception as e:
         logger.error(f"Erro no resumo de hoje: {e}")
+        try:
+            twilio_client.messages.create(
+                body="❌ Erro ao gerar resumo de hoje. Por favor, tente novamente mais tarde.",
+                from_=twilio_number,
+                to=from_number
+            )
+        except:
+            pass
         return Response("<Response><Message>❌ Erro no resumo de hoje.</Message></Response>", mimetype="application/xml")
 
 def gerar_resumo_categoria(from_number):
     try:
+        logger.info(f"Gerando resumo por categoria para {from_number}")
         registros = sheet.get_all_records()
         categorias = {}
         total = 0.0
@@ -296,6 +394,14 @@ def gerar_resumo_categoria(from_number):
             categorias[categoria] = categorias.get(categoria, 0) + valor
             total += valor
 
+        if not categorias:
+            twilio_client.messages.create(
+                body="📂 Resumo por Categoria:\n\nNão há despesas registradas.",
+                from_=twilio_number,
+                to=from_number
+            )
+            return Response("<Response></Response>", mimetype="application/xml")
+
         resumo = "📂 Resumo por Categoria:\n\n"
         for cat, val in sorted(categorias.items(), key=lambda x: x[1], reverse=True):
             percentual = (val / total) * 100 if total > 0 else 0
@@ -304,18 +410,43 @@ def gerar_resumo_categoria(from_number):
 
         labels = list(categorias.keys())
         valores = list(categorias.values())
+        
         grafico_path = gerar_grafico('pizza', 'Despesas por Categoria', valores, labels)
+        
+        if not grafico_path:
+            # Se falhar ao gerar o gráfico, enviar apenas o texto
+            twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
+            return Response("<Response></Response>", mimetype="application/xml")
+            
         grafico_url = f"{BASE_URL}/static/{os.path.basename(grafico_path)}"
-        twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
-        twilio_client.messages.create(body="📊 Gráfico por categoria", from_=twilio_number, to=from_number, media_url=[grafico_url])
-
+        
+        # Enviar mensagens
+        sucesso = enviar_mensagens_twilio(from_number, resumo, grafico_url)
+        
+        if not sucesso:
+            # Tentar enviar apenas o texto como fallback
+            twilio_client.messages.create(
+                body=resumo + "\n\n(Não foi possível gerar o gráfico)",
+                from_=twilio_number,
+                to=from_number
+            )
+            
         return Response("<Response></Response>", mimetype="application/xml")
     except Exception as e:
         logger.error(f"Erro no resumo por categoria: {e}")
+        try:
+            twilio_client.messages.create(
+                body="❌ Erro ao gerar resumo por categoria. Por favor, tente novamente mais tarde.",
+                from_=twilio_number,
+                to=from_number
+            )
+        except:
+            pass
         return Response("<Response><Message>❌ Erro no resumo por categoria.</Message></Response>", mimetype="application/xml")
 
 def gerar_resumo_mensal(from_number):
     try:
+        logger.info(f"Gerando resumo mensal para {from_number}")
         registros = sheet.get_all_records()
         hoje = datetime.now()
         dias = {}
@@ -330,28 +461,64 @@ def gerar_resumo_mensal(from_number):
                     dia = data.day
                     valor = parse_valor(r.get("Valor", "0"))
                     dias[dia] = dias.get(dia, 0) + valor
-            except:
+            except Exception as e:
+                logger.warning(f"Erro ao processar data '{data_str}': {e}")
                 continue
 
-        labels = [f"{dia}/{hoje.month}" for dia in sorted(dias)]
-        valores = [dias[dia] for dia in sorted(dias)]
+        if not dias:
+            twilio_client.messages.create(
+                body=f"📅 Resumo do mês de {hoje.strftime('%B/%Y')}:\n\nNão há despesas registradas para este mês.",
+                from_=twilio_number,
+                to=from_number
+            )
+            return Response("<Response></Response>", mimetype="application/xml")
+
+        labels = [f"{dia}/{hoje.month}" for dia in sorted(dias.keys())]
+        valores = [dias[dia] for dia in sorted(dias.keys())]
         total = sum(valores)
+        
         resumo = f"📅 Resumo do mês de {hoje.strftime('%B/%Y')}:\n\nTotal: {formatar_valor(total)}\nDias com despesas: {len(dias)}"
+        
         if dias:
             dia_maior = max(dias, key=dias.get)
             resumo += f"\nDia com maior gasto: {dia_maior}/{hoje.month} - {formatar_valor(dias[dia_maior])}"
 
         grafico_path = gerar_grafico('linha', f'Despesas diárias - {hoje.strftime("%B/%Y")}', valores, labels)
+        
+        if not grafico_path:
+            # Se falhar ao gerar o gráfico, enviar apenas o texto
+            twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
+            return Response("<Response></Response>", mimetype="application/xml")
+            
         grafico_url = f"{BASE_URL}/static/{os.path.basename(grafico_path)}"
-        twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
-        twilio_client.messages.create(body="📊 Gráfico mensal", from_=twilio_number, to=from_number, media_url=[grafico_url])
+        
+        # Enviar mensagens
+        sucesso = enviar_mensagens_twilio(from_number, resumo, grafico_url)
+        
+        if not sucesso:
+            # Tentar enviar apenas o texto como fallback
+            twilio_client.messages.create(
+                body=resumo + "\n\n(Não foi possível gerar o gráfico)",
+                from_=twilio_number,
+                to=from_number
+            )
+            
         return Response("<Response></Response>", mimetype="application/xml")
     except Exception as e:
         logger.error(f"Erro no resumo mensal: {e}")
+        try:
+            twilio_client.messages.create(
+                body="❌ Erro ao gerar resumo mensal. Por favor, tente novamente mais tarde.",
+                from_=twilio_number,
+                to=from_number
+            )
+        except:
+            pass
         return Response("<Response><Message>❌ Erro no resumo mensal.</Message></Response>", mimetype="application/xml")
 
 def gerar_resumo(from_number, responsavel, dias, titulo):
     try:
+        logger.info(f"Gerando {titulo} para {responsavel} (últimos {dias} dias)")
         registros = sheet.get_all_records()
         limite = datetime.now() - timedelta(days=dias)
         total = 0.0
@@ -381,26 +548,50 @@ def gerar_resumo(from_number, responsavel, dias, titulo):
 
         resumo = f"📋 {titulo} ({responsavel.title()}):\n\nTotal: {formatar_valor(total)}\nRegistros: {contador}"
 
-        if categorias:
-            categorias_ordenadas = sorted(categorias.items(), key=lambda x: x[1], reverse=True)
-            labels = [cat for cat, _ in categorias_ordenadas]
-            valores = [val for _, val in categorias_ordenadas]
-            grafico_path = gerar_grafico('pizza', f'{titulo} - {responsavel.title()}', valores, labels)
-            grafico_url = f"{BASE_URL}/static/{os.path.basename(grafico_path)}"
+        if not categorias:
+            resumo += "\n\nNão há despesas registradas neste período."
             twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
+            return Response("<Response></Response>", mimetype="application/xml")
+
+        categorias_ordenadas = sorted(categorias.items(), key=lambda x: x[1], reverse=True)
+        labels = [cat for cat, _ in categorias_ordenadas]
+        valores = [val for _, val in categorias_ordenadas]
+        
+        grafico_path = gerar_grafico('pizza', f'{titulo} - {responsavel.title()}', valores, labels)
+        
+        if not grafico_path:
+            # Se falhar ao gerar o gráfico, enviar apenas o texto
+            twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
+            return Response("<Response></Response>", mimetype="application/xml")
+            
+        grafico_url = f"{BASE_URL}/static/{os.path.basename(grafico_path)}"
+        
+        # Enviar mensagens
+        sucesso = enviar_mensagens_twilio(
+            from_number, 
+            resumo, 
+            grafico_url
+        )
+        
+        if not sucesso:
+            # Tentar enviar apenas o texto como fallback
             twilio_client.messages.create(
-                body=f"📊 Gráfico - {titulo} ({responsavel.title()})",
+                body=resumo + "\n\n(Não foi possível gerar o gráfico)",
                 from_=twilio_number,
-                to=from_number,
-                media_url=[grafico_url]
+                to=from_number
             )
-        else:
-            twilio_client.messages.create(body=resumo, from_=twilio_number, to=from_number)
-
+            
         return Response("<Response></Response>", mimetype="application/xml")
-
     except Exception as e:
         logger.error(f"Erro no resumo personalizado: {e}")
+        try:
+            twilio_client.messages.create(
+                body=f"❌ Erro ao gerar {titulo.lower()}. Por favor, tente novamente mais tarde.",
+                from_=twilio_number,
+                to=from_number
+            )
+        except:
+            pass
         return Response(f"<Response><Message>❌ Erro ao gerar {titulo.lower()}.</Message></Response>", mimetype="application/xml")
 
 @app.route("/whatsapp", methods=["POST"])
@@ -472,6 +663,7 @@ def processar_mensagem():
     data, descricao, valor = partes
 
     # Detecta o responsável pelo número
+    # Detecta o responsável pelo número
     responsavel = responsaveis_por_numero.get(from_number, "DESCONHECIDO")
 
     # Trata a data
@@ -507,6 +699,10 @@ def processar_mensagem():
 
     twilio_client.messages.create(body=resposta, from_=twilio_number, to=from_number)
     return Response("<Response></Response>", mimetype="application/xml")
+
+@app.route('/static/<path:path>')
+def serve_static(path):
+    return send_from_directory(STATIC_DIR, path)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
