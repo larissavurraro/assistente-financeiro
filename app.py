@@ -524,11 +524,18 @@ def gerar_resumo(from_number, responsavel, dias, titulo):
         total = 0.0
         categorias = {}
         contador = 0
+        
+        # Log para depuração
+        logger.info(f"Total de registros na planilha: {len(registros)}")
 
         for r in registros:
+            # Log detalhado para depuração
+            logger.debug(f"Processando registro: {r}")
+            
             data_str = r.get("Data", "")
             if not data_str:
                 continue
+                
             try:
                 try:
                     data = datetime.strptime(data_str, "%d/%m/%Y")
@@ -538,14 +545,27 @@ def gerar_resumo(from_number, responsavel, dias, titulo):
                 logger.warning(f"Formato de data inválido: {data_str} | Erro: {err}")
                 continue
 
-            resp = r.get("Responsável", "").upper()
-            if data >= limite and (responsavel.upper() == "TODOS" or resp == responsavel.upper()):
+            # Normaliza o responsável para comparação
+            resp_registro = r.get("Responsável", "").strip().upper()
+            resp_solicitado = responsavel.strip().upper()
+            
+            # Log para depuração da comparação
+            logger.debug(f"Comparando responsáveis: '{resp_registro}' com '{resp_solicitado}'")
+            
+            # Verifica se a data está no período e se o responsável corresponde
+            if data >= limite and (resp_solicitado == "TODOS" or resp_registro == resp_solicitado):
                 valor = parse_valor(r.get("Valor", "0"))
                 total += valor
                 categoria = r.get("Categoria", "OUTROS")
                 categorias[categoria] = categorias.get(categoria, 0) + valor
                 contador += 1
+                logger.debug(f"Registro contabilizado: {data_str}, {resp_registro}, {valor}")
+            else:
+                logger.debug(f"Registro ignorado: data={data >= limite}, resp={resp_solicitado == 'TODOS' or resp_registro == resp_solicitado}")
 
+        # Log do resultado final
+        logger.info(f"Resumo para {responsavel}: {contador} registros, total {total}")
+        
         resumo = f"📋 {titulo} ({responsavel.title()}):\n\nTotal: {formatar_valor(total)}\nRegistros: {contador}"
 
         if not categorias:
@@ -593,7 +613,7 @@ def gerar_resumo(from_number, responsavel, dias, titulo):
         except:
             pass
         return Response(f"<Response><Message>❌ Erro ao gerar {titulo.lower()}.</Message></Response>", mimetype="application/xml")
-
+        
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
     try:
